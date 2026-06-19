@@ -5,6 +5,9 @@ import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Venue;
 import com.eventmanager.repository.VenueRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +27,7 @@ public class VenueService {
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = "venues", key = "#id")
     @Transactional(readOnly = true)
     public VenueDto getVenueById(Long id) {
         return venueRepository.findById(id)
@@ -38,12 +42,14 @@ public class VenueService {
                 .collect(Collectors.toList());
     }
 
+    @CachePut(value = "venues", key = "#result.id")
     @Transactional
     public VenueDto createVenue(VenueDto dto) {
         Venue venue = toEntity(dto);
         return toDto(venueRepository.save(venue));
     }
 
+    @CachePut(value = "venues", key = "#id")
     @Transactional
     public VenueDto updateVenue(Long id, VenueDto dto) {
         Venue venue = venueRepository.findById(id)
@@ -57,6 +63,7 @@ public class VenueService {
         return toDto(venueRepository.save(venue));
     }
 
+    @CacheEvict(value = "venues", key = "#id")
     @Transactional
     public void deleteVenue(Long id) {
         if (!venueRepository.existsById(id)) {

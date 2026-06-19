@@ -8,6 +8,9 @@ import com.eventmanager.model.Performer;
 import com.eventmanager.repository.PerformerRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +33,7 @@ public class PerformerService {
                 .collect(Collectors.toList());
     }
 
+    @Cacheable(value = "performers", key = "#id")
     @Transactional(readOnly = true)
     public PerformerDto getPerformerById(Long id) {
         return performerRepository.findById(id)
@@ -51,6 +55,7 @@ public class PerformerService {
                 .collect(Collectors.toList());
     }
 
+    @CachePut(value = "performers", key = "#result.id")
     @Transactional
     public PerformerDto createPerformer(PerformerDto dto) {
         Performer performer = toEntity(dto);
@@ -61,6 +66,7 @@ public class PerformerService {
         return saved;
     }
 
+    @CachePut(value = "performers", key = "#id")
     @Transactional
     public PerformerDto updatePerformer(Long id, PerformerDto dto) {
         Performer performer = performerRepository.findById(id)
@@ -75,6 +81,7 @@ public class PerformerService {
         return saved;
     }
 
+    @CacheEvict(value = "performers", key = "#id")
     @Transactional
     public void deletePerformer(Long id) {
         if (!performerRepository.existsById(id)) {

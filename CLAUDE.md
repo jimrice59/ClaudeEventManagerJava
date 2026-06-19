@@ -34,7 +34,7 @@ JAVA_HOME=... $MVN package -DskipTests
 java -jar target/event-manager-1.0.0.jar
 ```
 
-All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
+All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
 
 ## Architecture
 
@@ -50,6 +50,28 @@ HTTP Request
   → PerformerCassandraRepository (Cassandra dual-write)
 ```
 
+### API endpoints
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/auth/register` | public | returns JWT |
+| POST | `/api/auth/login` | public | returns JWT |
+| GET | `/api/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
+| GET | `/api/events/{id}` | public | cached |
+| POST | `/api/events` | authenticated | |
+| PUT | `/api/events/{id}` | authenticated | |
+| DELETE | `/api/events/{id}` | ADMIN | |
+| GET | `/api/venues` | public | optional `?city=` |
+| GET | `/api/venues/{id}` | public | cached |
+| POST | `/api/venues` | ADMIN | |
+| PUT | `/api/venues/{id}` | ADMIN | |
+| DELETE | `/api/venues/{id}` | ADMIN | |
+| GET | `/api/performers` | public | optional `?name=` or `?genre=` |
+| GET | `/api/performers/{id}` | public | cached |
+| POST | `/api/performers` | ADMIN | Cassandra dual-write |
+| PUT | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
+| DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
+
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain`:
 - Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`
@@ -58,13 +80,16 @@ Defined in `SecurityConfig.securityFilterChain`:
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
-### Redis caching (events only)
-`EventService` is the only service with cache annotations. The cache name is `"events"`, keyed by event ID:
-- `@Cacheable` on `getEventById` — cache miss hits DB, subsequent calls return cached `EventResponse`
-- `@CachePut` on `createEvent` and `updateEvent` — always writes through to cache
-- `@CacheEvict` on `deleteEvent` — removes the entry
+### Redis caching
+All three services cache individual records by ID with a 1-hour TTL:
 
-`VenueService` and `PerformerService` have no caching. `getAllEvents` is not cached (list result invalidation is not implemented).
+| Cache name | Service | Cacheable | CachePut | CacheEvict |
+|---|---|---|---|---|
+| `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent` | `deleteEvent` |
+| `"venues"` | `VenueService` | `getVenueById` | `createVenue`, `updateVenue` | `deleteVenue` |
+| `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer` | `deletePerformer` |
+
+List endpoints (`getAll*`, `getVenuesByCity`, `searchPerformers`, `getPerformersByGenre`, `getEventsByVenue`, `getEventsBetween`) are not cached — list invalidation is not implemented.
 
 Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2JsonRedisSerializer`) and a 1-hour TTL. `EventResponse`, `VenueDto`, and `PerformerDto` all implement `Serializable` for this reason.
 
@@ -93,4 +118,6 @@ The `cassandra-init` container runs `cqlsh` against the `cassandra` service afte
 `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` prevents Spring Data JPA from scanning the `cassandra.repository` package, avoiding multi-store conflicts.
 
 ### Test profile
-`application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration` + `CassandraRepositoriesAutoConfiguration` so Cassandra is not required during tests.
+`src/main/resources/application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration` + `CassandraRepositoriesAutoConfiguration` so Cassandra is not required during tests.
+
+The only test class currently is `EventManagerApplicationTests` — a context load smoke test. The `-Dtest=EventServiceTest` example in the build commands is illustrative; that class does not exist yet.
