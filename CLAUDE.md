@@ -100,6 +100,22 @@ Defined in `SecurityConfig.securityFilterChain`:
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
+Unauthenticated requests to protected endpoints return **403** (not 401) — no `AuthenticationEntryPoint` is configured, so Spring Security's default `Http403ForbiddenEntryPoint` applies.
+
+### Exception handling
+`GlobalExceptionHandler` (`@RestControllerAdvice`) maps exceptions to HTTP responses:
+
+| Exception | Status | Notes |
+|---|---|---|
+| `ResourceNotFoundException` | 404 | Message from exception |
+| `AccessDeniedException` | 403 | Fixed message "Access denied"; must be declared before the `Exception` catch-all or `@PreAuthorize` rejections return 500 |
+| `BadCredentialsException` | 401 | Fixed message "Invalid username or password" |
+| `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email |
+| `MethodArgumentNotValidException` | 400 | Returns `{ status, errors: { field: message }, timestamp }` — different shape from `ErrorResponse` |
+| `Exception` (catch-all) | 500 | Generic message |
+
+`ErrorResponse` is a record `(int status, String message)` with a computed `timestamp()` method.
+
 ### Redis caching
 All three services cache individual records by ID with a 1-hour TTL:
 
@@ -123,6 +139,14 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 
 ### DTO separation
 Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
+
+### Transaction conventions
+All service methods are explicitly annotated — no implicit transaction boundary is relied upon:
+- Read-only methods use `@Transactional(readOnly = true)` — allows connection reuse and DB-side read optimization
+- Write methods use `@Transactional` — rolls back on any unchecked exception
+- `AuthService.login` is `@Transactional(readOnly = true)`: it makes two DB reads (one via `authenticationManager.authenticate` → `UserDetailsServiceImpl`, one direct `userRepository.findByUsername`) and wrapping them ensures a single connection
+
+Cassandra writes in `PerformerService` happen after the JPA call and are outside the Postgres transaction boundary. A Cassandra failure after Postgres commits is not rolled back — accepted limitation of dual-store without a distributed transaction coordinator.
 
 ### Logging
 `PerformerService` uses `@Slf4j` (Lombok) with structured parameterized log statements. Log level conventions:
