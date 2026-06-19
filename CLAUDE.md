@@ -34,6 +34,26 @@ JAVA_HOME=... $MVN package -DskipTests
 java -jar target/event-manager-1.0.0.jar
 ```
 
+### Docker
+
+```bash
+# Build image (~137 MB content size)
+docker build -t event-manager .
+
+# Run against the compose stack (dependencies on host)
+docker run -p 8080:8080 \
+  -e DB_HOST=host.docker.internal \
+  -e REDIS_HOST=host.docker.internal \
+  -e CASSANDRA_HOST=host.docker.internal \
+  event-manager
+```
+
+The Dockerfile is a two-stage build:
+- **Build stage** (`maven:3.9-eclipse-temurin-21`): `pom.xml` is copied first and `dependency:go-offline` is run as a separate layer, so Maven dependencies are cached between builds and only re-downloaded when `pom.xml` changes.
+- **Runtime stage** (`eclipse-temurin:21-jre-alpine`): copies only the packaged jar into a minimal Alpine JRE image. No JDK, no Maven, no source in the final image.
+
+`.dockerignore` excludes `target/`, `.git/`, `.claude/`, `*.md`, and `dump.rdb`.
+
 All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
 
 ## Architecture
