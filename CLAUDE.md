@@ -25,7 +25,7 @@ JAVA_HOME=... $MVN spring-boot:run
 JAVA_HOME=... $MVN test
 
 # Run a single test class
-JAVA_HOME=... $MVN test -Dtest=EventServiceTest
+JAVA_HOME=... $MVN test -Dtest=PerformerServiceTest
 
 # Package jar
 JAVA_HOME=... $MVN package -DskipTests
@@ -140,4 +140,20 @@ The `cassandra-init` container runs `cqlsh` against the `cassandra` service afte
 ### Test profile
 `src/main/resources/application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration` + `CassandraRepositoriesAutoConfiguration` so Cassandra is not required during tests.
 
-The only test class currently is `EventManagerApplicationTests` — a context load smoke test. The `-Dtest=EventServiceTest` example in the build commands is illustrative; that class does not exist yet.
+### Test classes
+
+| Class | Style | Tests | Notes |
+|---|---|---|---|
+| `EventManagerApplicationTests` | `@SpringBootTest` | 1 | Context load smoke test |
+| `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 14 | Pure unit tests, no Spring context |
+| `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
+
+**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (with and without Cassandra), `updatePerformer` (found/not found), `deletePerformer` (found/not found).
+
+**`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, 403 for unauthenticated requests, 404 with error body.
+
+**`@WebMvcTest` caveat:** `@EnableJpaRepositories` on `EventManagerApplication` causes `@WebMvcTest` slices to fail (JPA is forced into the context but `entityManagerFactory` isn't auto-configured by the slice). Controller tests use `@SpringBootTest + @AutoConfigureMockMvc + @ActiveProfiles("test")` instead.
+
+**Cassandra field injection in service tests:** `PerformerService` has `@Autowired(required = false) PerformerCassandraRepository` (field-injected, not constructor-injected). Mockito's `@InjectMocks` stops after satisfying the required-args constructor and never sets the optional field. `PerformerServiceTest` constructs the service manually and uses `ReflectionTestUtils.setField` to inject the mock.
+
+**`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return 403 (not 401) because no `AuthenticationEntryPoint` is configured in `SecurityConfig`.
