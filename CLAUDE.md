@@ -56,6 +56,8 @@ The Dockerfile is a two-stage build:
 
 All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
 
+`docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` on `host.docker.internal:8080` every 15 s. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
+
 ## Architecture
 
 ### Request flow
@@ -94,7 +96,7 @@ HTTP Request
 
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain`:
-- Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`
+- Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
 - Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**`
 - Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**`, `DELETE /api/events/**`, `/api/admin/**`
 
@@ -158,6 +160,22 @@ Cassandra writes in `PerformerService` happen after the JPA call and are outside
 | `DEBUG` | Read operations (query params, result counts), Cassandra sync confirmations |
 
 Root log level is `DEBUG` for `com.eventmanager` (set in `application.yml`). `VenueService` and `EventService` do not have logging yet.
+
+### Monitoring
+`spring-boot-starter-actuator` + `micrometer-registry-prometheus` add observability with no instrumentation code:
+
+| Endpoint | Auth | What it shows |
+|---|---|---|
+| `GET /actuator/health` | public | Composite status: Postgres, Redis, Cassandra, disk |
+| `GET /actuator/prometheus` | public | All Micrometer metrics in Prometheus text format |
+| `GET /actuator/metrics` | authenticated | Individual metric lookup |
+| `GET /actuator/info` | authenticated | App info |
+
+`show-details: always` and `show-components: always` in `application.yml` expose per-component health (each datastore reported individually). All metrics carry an `application=event-manager` tag.
+
+`/actuator/health` and `/actuator/prometheus` are explicitly permitted in `SecurityConfig` so Prometheus can scrape without a token. Other actuator endpoints require authentication.
+
+Scrape config is in `monitoring/prometheus.yml`. Grafana dashboard **4701** (JVM Micrometer) covers HTTP request rate/latency, JVM heap, GC, and Hikari pool usage.
 
 ### Cassandra dual-write (performers)
 `PerformerService` writes to Postgres first, then Cassandra. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
