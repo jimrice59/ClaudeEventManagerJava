@@ -177,6 +177,26 @@ Root log level is `DEBUG` for `com.eventmanager` (set in `application.yml`). `Ve
 
 Scrape config is in `monitoring/prometheus.yml`. Grafana dashboard **4701** (JVM Micrometer) covers HTTP request rate/latency, JVM heap, GC, and Hikari pool usage.
 
+`management.endpoint.health.probes.enabled: true` exposes `/actuator/health/liveness` and `/actuator/health/readiness` as dedicated Kubernetes probe endpoints. Liveness checks only that the JVM/application context is alive; readiness checks datastores. Using `/actuator/health` for liveness would restart pods whenever a database is unreachable, which is wrong.
+
+### Kubernetes
+`k8s/deployment.yml` contains four resources applied with `kubectl apply -f k8s/deployment.yml`:
+
+| Resource | Name | Notes |
+|---|---|---|
+| `Secret` | `event-manager-secrets` | `DB_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET` — replace before applying |
+| `ConfigMap` | `event-manager-config` | Non-sensitive config; host names are in-cluster service names |
+| `Deployment` | `event-manager` | 3 replicas; rolling update with `maxUnavailable: 0` |
+| `Service` | `event-manager-service` | `LoadBalancer` on port 80 → pod port 8080 |
+
+Resource sizing: 250m CPU / 512Mi memory requests; 1 CPU / 1Gi limits. Rolling update strategy keeps all 3 replicas live during a deploy (`maxUnavailable: 0`, `maxSurge: 1`).
+
+Probes use the dedicated Spring Boot Kubernetes endpoints:
+- **Readiness**: `/actuator/health/readiness` — checks datastores; pod removed from load balancing if unhealthy
+- **Liveness**: `/actuator/health/liveness` — checks JVM only; does not restart pods on DB outage
+
+Update the `image:` field to your registry path before applying.
+
 ### Cassandra dual-write (performers)
 `PerformerService` writes to Postgres first, then Cassandra. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
