@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/jimrice1959/Documents/workspace/tech-prep/claude/ClaudeEventManager_Java_1 && if ! git diff --quiet || ! git diff --staged --quiet; then SUMMARY=$(git diff --name-only; git diff --staged --name-only | sort -u | head -3 | paste -sd ', '); git add -A && git commit -m \"Auto-commit: $SUMMARY\" && git push origin main; fi 2>/dev/null || true",
+            "statusMessage": "Committing and pushing changes..."
+          }
+        ]
+      }
+    ]
+  }
+}
