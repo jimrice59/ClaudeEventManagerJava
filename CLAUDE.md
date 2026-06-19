@@ -124,6 +124,17 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 ### DTO separation
 Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
 
+### Logging
+`PerformerService` uses `@Slf4j` (Lombok) with structured parameterized log statements. Log level conventions:
+
+| Level | When |
+|---|---|
+| `INFO` | Mutation entry and success (`createPerformer`, `updatePerformer`, `deletePerformer`) |
+| `WARN` | Not-found paths before throwing `ResourceNotFoundException` |
+| `DEBUG` | Read operations (query params, result counts), Cassandra sync confirmations |
+
+Root log level is `DEBUG` for `com.eventmanager` (set in `application.yml`). `VenueService` and `EventService` do not have logging yet.
+
 ### Cassandra dual-write (performers)
 `PerformerService` writes to Postgres first, then Cassandra. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
