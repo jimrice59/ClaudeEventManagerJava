@@ -1,0 +1,99 @@
+# Replace image with your registry path before applying, e.g. ghcr.io/yourorg/event-manager:1.0.0
+# Replace Secret stringData values with real credentials before applying.
+# Apply with: kubectl apply -f k8s/deployment.yml
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: event-manager-secrets
+type: Opaque
+stringData:
+  DB_PASSWORD: postgres
+  REDIS_PASSWORD: ""
+  JWT_SECRET: "3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: event-manager-config
+data:
+  DB_HOST: postgres-service
+  DB_PORT: "5432"
+  DB_NAME: eventdb
+  DB_USERNAME: postgres
+  REDIS_HOST: redis-service
+  REDIS_PORT: "6379"
+  CASSANDRA_HOST: cassandra-service
+  CASSANDRA_PORT: "9042"
+  CASSANDRA_KEYSPACE: event_manager
+  CASSANDRA_DATACENTER: datacenter1
+  JWT_EXPIRATION_MS: "86400000"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-manager
+  labels:
+    app: event-manager
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: event-manager
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: event-manager
+    spec:
+      containers:
+        - name: event-manager
+          image: event-manager:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: event-manager-config
+            - secretRef:
+                name: event-manager-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-manager-service
+spec:
+  selector:
+    app: event-manager
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: LoadBalancer
