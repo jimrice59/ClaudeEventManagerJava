@@ -142,6 +142,34 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 ### DTO separation
 Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
 
+### Dependency injection
+Three DI forms are used, each for a different reason:
+
+**Constructor injection via `@RequiredArgsConstructor` (Lombok) — primary pattern**
+Every service, controller, and security class declares dependencies as `private final` fields. Lombok generates the constructor; Spring injects the beans at startup. Dependencies are immutable and the class is testable without a Spring context (just call `new` with mocks).
+
+| Class | Injected dependencies |
+|---|---|
+| `AuthController` | `AuthService` |
+| `EventController` | `EventService` |
+| `VenueController` | `VenueService` |
+| `PerformerController` | `PerformerService` |
+| `AuthService` | `AuthenticationManager`, `UserRepository`, `PasswordEncoder`, `JwtTokenProvider` |
+| `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository` |
+| `VenueService` | `VenueRepository` |
+| `PerformerService` | `PerformerRepository` |
+| `UserDetailsServiceImpl` | `UserRepository` |
+| `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
+| `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
+
+**Field injection via `@Autowired(required = false)` — one special case**
+`PerformerService.cassandraRepository` uses field injection because it is optional. `required = false` tells Spring to skip the field if no `PerformerCassandraRepository` bean is present (test profile excludes Cassandra autoconfiguration). Constructor injection cannot express this without an `Optional<>` wrapper.
+
+**`@Bean` factory methods in `@Configuration` classes — explicit bean registration**
+`SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager.
+
+Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are registered automatically by the `spring-boot-starter-data-jpa` infrastructure — no annotation is needed on them beyond `extends JpaRepository`. `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` scopes this scan to exclude the Cassandra repository package.
+
 ### Transaction conventions
 All service methods are explicitly annotated — no implicit transaction boundary is relied upon:
 - Read-only methods use `@Transactional(readOnly = true)` — allows connection reuse and DB-side read optimization
