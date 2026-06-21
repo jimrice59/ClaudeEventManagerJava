@@ -179,6 +179,14 @@ All datastore calls are synchronous and blocking — there is no async machinery
 
 The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool). Each HTTP request occupies one thread for its full duration. The Cassandra dual-write in `PerformerService` is sequential on that thread: the Postgres call completes first, then the Cassandra call blocks before the response is returned.
 
+**Making Cassandra writes asynchronous — options in order of effort:**
+
+1. **`@Async` on a helper method (lowest effort).** Add `@EnableAsync` to `EventManagerApplication` and extract the Cassandra write into a `@Async`-annotated method. Spring dispatches it to a `ThreadPoolTaskExecutor`, freeing the request thread immediately after the Postgres commit. Best fit here because Cassandra is fire-and-forget (Postgres is source of truth). Failures surface via a configurable `AsyncUncaughtExceptionHandler` rather than propagating to the caller.
+
+2. **`ReactiveCassandraRepository` in a servlet app (awkward).** Swap `CassandraRepository` for `ReactiveCassandraRepository`, which returns `Mono<CassandraPerformer>`. In a servlet context you must call `.subscribe()` (fire-and-forget) or `.block()` (defeats the purpose). `.subscribe()` works but error handling is harder; there is no clean integration with the servlet thread model.
+
+3. **Full reactive stack (largest change).** Replace `spring-boot-starter-web` with `spring-boot-starter-webflux`, swap JDBC/JPA for R2DBC (`spring-boot-starter-data-r2dbc`), and use `ReactiveCassandraRepository`. All I/O becomes non-blocking end-to-end. This is a significant architectural rewrite — controllers return `Mono`/`Flux`, services chain reactive operators, and the Tomcat thread pool is replaced by a small Netty event loop.
+
 ### Transaction conventions
 All service methods are explicitly annotated — no implicit transaction boundary is relied upon:
 - Read-only methods use `@Transactional(readOnly = true)` — allows connection reuse and DB-side read optimization
