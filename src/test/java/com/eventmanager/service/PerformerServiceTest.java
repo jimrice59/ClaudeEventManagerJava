@@ -1,7 +1,6 @@
 package com.eventmanager.service;
 
 import com.eventmanager.cassandra.model.CassandraPerformer;
-import com.eventmanager.cassandra.repository.PerformerCassandraRepository;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Performer;
@@ -11,7 +10,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -27,7 +25,7 @@ class PerformerServiceTest {
     private PerformerRepository performerRepository;
 
     @Mock
-    private PerformerCassandraRepository cassandraRepository;
+    private CassandraAsyncWriter cassandraAsyncWriter;
 
     private PerformerService performerService;
 
@@ -36,10 +34,7 @@ class PerformerServiceTest {
 
     @BeforeEach
     void setUp() {
-        // Construct manually so we can inject the optional cassandraRepository field,
-        // which @InjectMocks skips after satisfying the required-args constructor.
-        performerService = new PerformerService(performerRepository);
-        ReflectionTestUtils.setField(performerService, "cassandraRepository", cassandraRepository);
+        performerService = new PerformerService(performerRepository, cassandraAsyncWriter);
 
         performer = Performer.builder()
                 .id(1L)
@@ -142,7 +137,7 @@ class PerformerServiceTest {
     // --- createPerformer ---
 
     @Test
-    void createPerformer_savesToPostgresAndCassandra() {
+    void createPerformer_savesToPostgresAndSchedulesCassandraWrite() {
         PerformerDto input = PerformerDto.builder()
                 .name("The Beatles").genre("Rock").bio("Legendary British band").build();
         when(performerRepository.save(any(Performer.class))).thenReturn(performer);
@@ -152,27 +147,13 @@ class PerformerServiceTest {
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getName()).isEqualTo("The Beatles");
         verify(performerRepository).save(any(Performer.class));
-        verify(cassandraRepository).save(any(CassandraPerformer.class));
-    }
-
-    @Test
-    void createPerformer_skipsCassandraWhenRepositoryAbsent() {
-        // cassandraRepository field left null — simulates the test profile where the bean is absent
-        PerformerService serviceWithoutCassandra = new PerformerService(performerRepository);
-        Performer saved = Performer.builder().id(2L).name("Solo Artist").genre("Pop").build();
-        when(performerRepository.save(any(Performer.class))).thenReturn(saved);
-
-        PerformerDto result = serviceWithoutCassandra.createPerformer(
-                PerformerDto.builder().name("Solo Artist").genre("Pop").build());
-
-        assertThat(result.getId()).isEqualTo(2L);
-        verifyNoInteractions(cassandraRepository);
+        verify(cassandraAsyncWriter).savePerformer(any(CassandraPerformer.class));
     }
 
     // --- updatePerformer ---
 
     @Test
-    void updatePerformer_updatesAllFieldsAndSyncsCassandra() {
+    void updatePerformer_updatesAllFieldsAndSchedulesCassandraWrite() {
         PerformerDto update = PerformerDto.builder()
                 .name("The Beatles (Remastered)").genre("Classic Rock").bio("Updated bio").build();
         Performer updated = Performer.builder()
@@ -185,7 +166,7 @@ class PerformerServiceTest {
         assertThat(result.getName()).isEqualTo("The Beatles (Remastered)");
         assertThat(result.getGenre()).isEqualTo("Classic Rock");
         assertThat(result.getBio()).isEqualTo("Updated bio");
-        verify(cassandraRepository).save(any(CassandraPerformer.class));
+        verify(cassandraAsyncWriter).savePerformer(any(CassandraPerformer.class));
     }
 
     @Test
@@ -197,18 +178,19 @@ class PerformerServiceTest {
                 .hasMessageContaining("Performer")
                 .hasMessageContaining("99");
         verify(performerRepository, never()).save(any());
+        verifyNoInteractions(cassandraAsyncWriter);
     }
 
     // --- deletePerformer ---
 
     @Test
-    void deletePerformer_deletesFromPostgresAndCassandra() {
+    void deletePerformer_deletesFromPostgresAndSchedulesCassandraDelete() {
         when(performerRepository.existsById(1L)).thenReturn(true);
 
         performerService.deletePerformer(1L);
 
         verify(performerRepository).deleteById(1L);
-        verify(cassandraRepository).deleteById(1L);
+        verify(cassandraAsyncWriter).deletePerformer(1L);
     }
 
     @Test
@@ -220,6 +202,6 @@ class PerformerServiceTest {
                 .hasMessageContaining("Performer")
                 .hasMessageContaining("99");
         verify(performerRepository, never()).deleteById(any());
-        verify(cassandraRepository, never()).deleteById(any());
+        verifyNoInteractions(cassandraAsyncWriter);
     }
 }

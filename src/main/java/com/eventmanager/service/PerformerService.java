@@ -1,14 +1,12 @@
 package com.eventmanager.service;
 
 import com.eventmanager.cassandra.model.CassandraPerformer;
-import com.eventmanager.cassandra.repository.PerformerCassandraRepository;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Performer;
 import com.eventmanager.repository.PerformerRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -24,9 +22,7 @@ import java.util.stream.Collectors;
 public class PerformerService {
 
     private final PerformerRepository performerRepository;
-
-    @Autowired(required = false)
-    private PerformerCassandraRepository cassandraRepository;
+    private final CassandraAsyncWriter cassandraAsyncWriter;
 
     @Transactional(readOnly = true)
     public List<PerformerDto> getAllPerformers() {
@@ -77,10 +73,7 @@ public class PerformerService {
         Performer performer = toEntity(dto);
         PerformerDto saved = toDto(performerRepository.save(performer));
         log.info("Created performer id={} name='{}'", saved.getId(), saved.getName());
-        if (cassandraRepository != null) {
-            cassandraRepository.save(toCassandraEntity(saved));
-            log.debug("Synced performer id={} to Cassandra", saved.getId());
-        }
+        cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
         return saved;
     }
 
@@ -98,10 +91,7 @@ public class PerformerService {
         performer.setBio(dto.getBio());
         PerformerDto saved = toDto(performerRepository.save(performer));
         log.info("Updated performer id={} name='{}'", saved.getId(), saved.getName());
-        if (cassandraRepository != null) {
-            cassandraRepository.save(toCassandraEntity(saved));
-            log.debug("Synced performer id={} to Cassandra", saved.getId());
-        }
+        cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
         return saved;
     }
 
@@ -114,10 +104,7 @@ public class PerformerService {
             throw new ResourceNotFoundException("Performer", "id", id);
         }
         performerRepository.deleteById(id);
-        if (cassandraRepository != null) {
-            cassandraRepository.deleteById(id);
-            log.debug("Deleted performer id={} from Cassandra", id);
-        }
+        cassandraAsyncWriter.deletePerformer(id);
         log.info("Deleted performer id={}", id);
     }
 
