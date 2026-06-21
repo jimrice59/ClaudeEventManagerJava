@@ -68,8 +68,8 @@ HTTP Request
   → Controller (validates input with @Valid)
   → Service (business logic, Redis cache annotations)
   → Repository (JPA / PostgreSQL)
-       ↓ (performer writes only)
-  → PerformerCassandraRepository (Cassandra dual-write)
+       ↓ (performer writes only, fire-and-forget)
+  → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → PerformerCassandraRepository)
 ```
 
 ### API endpoints
@@ -157,35 +157,33 @@ Every service, controller, and security class declares dependencies as `private 
 | `AuthService` | `AuthenticationManager`, `UserRepository`, `PasswordEncoder`, `JwtTokenProvider` |
 | `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository` |
 | `VenueService` | `VenueRepository` |
-| `PerformerService` | `PerformerRepository` |
+| `PerformerService` | `PerformerRepository`, `CassandraAsyncWriter` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
 
 **Field injection via `@Autowired(required = false)` — one special case**
-`PerformerService.cassandraRepository` uses field injection because it is optional. `required = false` tells Spring to skip the field if no `PerformerCassandraRepository` bean is present (test profile excludes Cassandra autoconfiguration). Constructor injection cannot express this without an `Optional<>` wrapper.
+`CassandraAsyncWriter.cassandraRepository` uses field injection because it is optional. `required = false` tells Spring to skip the field if no `PerformerCassandraRepository` bean is present (test profile excludes Cassandra autoconfiguration). `CassandraAsyncWriter` is always created as a bean; its methods short-circuit with a null check when the repository is absent. Constructor injection cannot express optionality without an `Optional<>` wrapper.
 
 **`@Bean` factory methods in `@Configuration` classes — explicit bean registration**
 `SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager.
 
 Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are registered automatically by the `spring-boot-starter-data-jpa` infrastructure — no annotation is needed on them beyond `extends JpaRepository`. `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` scopes this scan to exclude the Cassandra repository package.
 
-### Synchronous I/O model
-All datastore calls are synchronous and blocking — there is no async machinery (`@Async`, reactive types, `CompletableFuture`) in this project.
+### I/O model
+**Postgres** calls are synchronous and blocking. Spring Data JPA uses JDBC — every `findById`, `save`, and `deleteById` holds the request thread until Postgres responds. The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool), so each request occupies one thread for its full duration.
 
-**Postgres:** Spring Data JPA uses JDBC, which is a blocking API. Every `findById`, `save`, and `deleteById` call holds the request thread until Postgres responds.
+**Cassandra** writes are asynchronous via Spring's `@Async` mechanism. After the Postgres write commits, `PerformerService` calls `CassandraAsyncWriter.savePerformer()` / `deletePerformer()`, which returns immediately — the actual Cassandra I/O runs on the `cassandraExecutor` thread pool (configured in `AsyncConfig`). The HTTP response is returned before the Cassandra write completes.
 
-**Cassandra:** `PerformerCassandraRepository extends CassandraRepository<CassandraPerformer, Long>` — the synchronous Spring Data Cassandra variant. The reactive equivalent (`ReactiveCassandraRepository`) returns `Mono`/`Flux` and is not used here.
+`@Async` requires the annotated method to be on a different bean — calling an `@Async` method on `this` bypasses the Spring AOP proxy and runs synchronously. `CassandraAsyncWriter` is a dedicated `@Service` for this reason; `PerformerService` injects it via constructor and delegates to it.
 
-The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool). Each HTTP request occupies one thread for its full duration. The Cassandra dual-write in `PerformerService` is sequential on that thread: the Postgres call completes first, then the Cassandra call blocks before the response is returned.
+`AsyncConfig` registers a named `ThreadPoolTaskExecutor` bean (`cassandraExecutor`): core pool 2, max 5, queue capacity 100, thread prefix `cassandra-async-`. The named executor is referenced in `@Async("cassandraExecutor")` so Cassandra writes don't contend with any other async work.
 
-**Making Cassandra writes asynchronous — options in order of effort:**
+Cassandra write failures are caught inside `CassandraAsyncWriter` and logged as `ERROR` — there is no caller to propagate them to once the method returns asynchronously.
 
-1. **`@Async` on a helper method (lowest effort).** Add `@EnableAsync` to `EventManagerApplication` and extract the Cassandra write into a `@Async`-annotated method. Spring dispatches it to a `ThreadPoolTaskExecutor`, freeing the request thread immediately after the Postgres commit. Best fit here because Cassandra is fire-and-forget (Postgres is source of truth). Failures surface via a configurable `AsyncUncaughtExceptionHandler` rather than propagating to the caller.
-
-2. **`ReactiveCassandraRepository` in a servlet app (awkward).** Swap `CassandraRepository` for `ReactiveCassandraRepository`, which returns `Mono<CassandraPerformer>`. In a servlet context you must call `.subscribe()` (fire-and-forget) or `.block()` (defeats the purpose). `.subscribe()` works but error handling is harder; there is no clean integration with the servlet thread model.
-
-3. **Full reactive stack (largest change).** Replace `spring-boot-starter-web` with `spring-boot-starter-webflux`, swap JDBC/JPA for R2DBC (`spring-boot-starter-data-r2dbc`), and use `ReactiveCassandraRepository`. All I/O becomes non-blocking end-to-end. This is a significant architectural rewrite — controllers return `Mono`/`Flux`, services chain reactive operators, and the Tomcat thread pool is replaced by a small Netty event loop.
+**Alternative async approaches (not implemented):**
+- `ReactiveCassandraRepository` (`Mono`/`Flux`) — works with `.subscribe()` in a servlet app but error handling is harder and there is no clean integration with the servlet thread model.
+- Full reactive stack (`spring-boot-starter-webflux` + R2DBC + `ReactiveCassandraRepository`) — non-blocking end-to-end but a significant architectural rewrite.
 
 ### Transaction conventions
 All service methods are explicitly annotated — no implicit transaction boundary is relied upon:
@@ -202,7 +200,9 @@ Cassandra writes in `PerformerService` happen after the JPA call and are outside
 |---|---|
 | `INFO` | Mutation entry and success (`createPerformer`, `updatePerformer`, `deletePerformer`) |
 | `WARN` | Not-found paths before throwing `ResourceNotFoundException` |
-| `DEBUG` | Read operations (query params, result counts), Cassandra sync confirmations |
+| `DEBUG` | Read operations (query params, result counts) |
+
+`CassandraAsyncWriter` also uses `@Slf4j`: `DEBUG` on successful async save/delete, `ERROR` on exception (with stack trace).
 
 Root log level is `DEBUG` for `com.eventmanager` (set in `application.yml`). `VenueService` and `EventService` do not have logging yet.
 
@@ -243,11 +243,12 @@ Probes use the dedicated Spring Boot Kubernetes endpoints:
 Update the `image:` field to your registry path before applying.
 
 ### Cassandra dual-write (performers)
-`PerformerService` writes to Postgres first, then Cassandra. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
+`PerformerService` writes to Postgres first (synchronous, within the JPA transaction), then fires an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
 - Entity: `cassandra/model/CassandraPerformer.java` — `@Table("performers")` with `id` as partition key
 - Repository: `cassandra/repository/PerformerCassandraRepository.java` — `CassandraRepository<CassandraPerformer, Long>`
-- `PerformerService` injects `PerformerCassandraRepository` with `@Autowired(required = false)`; Cassandra writes are skipped if the bean is absent (test profile)
+- `CassandraAsyncWriter` — `@Service` with `@Async("cassandraExecutor")` methods; holds `@Autowired(required = false) PerformerCassandraRepository`; skips the write (null check) when the bean is absent (test profile)
+- `PerformerService` injects `CassandraAsyncWriter` via constructor; calls `savePerformer()` / `deletePerformer()` fire-and-forget after the Postgres operation completes
 - `spring.cassandra.schema-action: create_if_not_exists` auto-creates the `performers` table
 - The `event_manager` keyspace is created by the `cassandra-init` container in docker-compose on first `docker compose up -d`
 
@@ -263,15 +264,15 @@ The `cassandra-init` container runs `cqlsh` against the `cassandra` service afte
 | Class | Style | Tests | Notes |
 |---|---|---|---|
 | `EventManagerApplicationTests` | `@SpringBootTest` | 1 | Context load smoke test |
-| `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 14 | Pure unit tests, no Spring context |
+| `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 
-**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (with and without Cassandra), `updatePerformer` (found/not found), `deletePerformer` (found/not found).
+**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter` directly via constructor — no `ReflectionTestUtils` needed. The "absent Cassandra" scenario moved to `CassandraAsyncWriter` and is no longer tested at the service level.
 
 **`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, 403 for unauthenticated requests, 404 with error body.
 
 **`@WebMvcTest` caveat:** `@EnableJpaRepositories` on `EventManagerApplication` causes `@WebMvcTest` slices to fail (JPA is forced into the context but `entityManagerFactory` isn't auto-configured by the slice). Controller tests use `@SpringBootTest + @AutoConfigureMockMvc + @ActiveProfiles("test")` instead.
 
-**Cassandra field injection in service tests:** `PerformerService` has `@Autowired(required = false) PerformerCassandraRepository` (field-injected, not constructor-injected). Mockito's `@InjectMocks` stops after satisfying the required-args constructor and never sets the optional field. `PerformerServiceTest` constructs the service manually and uses `ReflectionTestUtils.setField` to inject the mock.
+**Async Cassandra in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` methods run synchronously. This is fine: tests verify that `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` are called, not that they ran on a background thread. `CassandraAsyncWriter` is constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, cassandraAsyncWriter)` with a Mockito mock is all that is needed — no `ReflectionTestUtils`.
 
 **`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return 403 (not 401) because no `AuthenticationEntryPoint` is configured in `SecurityConfig`.
