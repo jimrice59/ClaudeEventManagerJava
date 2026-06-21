@@ -170,6 +170,15 @@ Every service, controller, and security class declares dependencies as `private 
 
 Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are registered automatically by the `spring-boot-starter-data-jpa` infrastructure — no annotation is needed on them beyond `extends JpaRepository`. `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` scopes this scan to exclude the Cassandra repository package.
 
+### Synchronous I/O model
+All datastore calls are synchronous and blocking — there is no async machinery (`@Async`, reactive types, `CompletableFuture`) in this project.
+
+**Postgres:** Spring Data JPA uses JDBC, which is a blocking API. Every `findById`, `save`, and `deleteById` call holds the request thread until Postgres responds.
+
+**Cassandra:** `PerformerCassandraRepository extends CassandraRepository<CassandraPerformer, Long>` — the synchronous Spring Data Cassandra variant. The reactive equivalent (`ReactiveCassandraRepository`) returns `Mono`/`Flux` and is not used here.
+
+The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool). Each HTTP request occupies one thread for its full duration. The Cassandra dual-write in `PerformerService` is sequential on that thread: the Postgres call completes first, then the Cassandra call blocks before the response is returned.
+
 ### Transaction conventions
 All service methods are explicitly annotated — no implicit transaction boundary is relied upon:
 - Read-only methods use `@Transactional(readOnly = true)` — allows connection reuse and DB-side read optimization
