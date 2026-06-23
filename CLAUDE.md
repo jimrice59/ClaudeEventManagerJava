@@ -12,13 +12,16 @@ export MVN=/Users/jimrice1959/.sdkman/candidates/maven/current/bin/mvn
 ```
 
 ```bash
-# Start dependencies
+# App only — starts infrastructure + app container (port 8080); no Traefik
 docker compose up -d
+
+# App + Traefik — adds Traefik reverse proxy (port 80) and dashboard (port 9000)
+docker compose --profile traefik up -d
 
 # Compile
 JAVA_HOME=... $MVN compile
 
-# Run application
+# Run application locally (against docker compose infrastructure only)
 JAVA_HOME=... $MVN spring-boot:run
 
 # Run all tests (requires H2; Redis/Postgres not needed for tests)
@@ -56,7 +59,16 @@ The Dockerfile is a two-stage build:
 
 All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
 
-`docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` on `host.docker.internal:8080` every 15 s. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
+`docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` from both `app:8080` (docker-compose mode) and `host.docker.internal:8080` (local `mvn spring-boot:run` mode) — unreachable targets show as DOWN without affecting the other. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
+
+**Traefik** is optional, activated via the `traefik` profile:
+
+| Command | What starts | App access |
+|---|---|---|
+| `docker compose up -d` | Infrastructure + app | `http://localhost:8080` |
+| `docker compose --profile traefik up -d` | Infrastructure + app + Traefik | `http://localhost` (port 80) or `http://localhost:8080` (direct) |
+
+Traefik dashboard: `http://localhost:9000` (only when running with the `traefik` profile). Traefik auto-discovers the `app` container via Docker labels; `exposedbydefault=false` ensures only labeled services are routed. Scale with `docker compose --profile traefik up -d --scale app=3` — Traefik load-balances across all instances automatically.
 
 ## Architecture
 
