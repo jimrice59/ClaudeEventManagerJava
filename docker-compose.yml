@@ -57,6 +57,45 @@ services:
        AND durable_writes = true;"
     restart: "no"
 
+  traefik:
+    image: traefik:v3.0
+    container_name: eventmanager-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "9000:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  app:
+    image: event-manager:latest
+    container_name: eventmanager-app
+    ports:
+      - "8080:8080"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: eventdb
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      CASSANDRA_HOST: cassandra
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.event-manager.rule=Host(`localhost`)"
+      - "traefik.http.routers.event-manager.entrypoints=web"
+      - "traefik.http.services.event-manager.loadbalancer.server.port=8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      cassandra-init:
+        condition: service_completed_successfully
+
   prometheus:
     image: prom/prometheus:latest
     container_name: eventmanager-prometheus
