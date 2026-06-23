@@ -60,6 +60,7 @@ services:
   traefik:
     image: traefik:v3.0
     container_name: eventmanager-traefik
+    profiles: ["traefik"]
     command:
       - "--api.insecure=true"
       - "--providers.docker=true"
