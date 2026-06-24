@@ -2,6 +2,7 @@ package com.eventmanager.controller;
 
 import com.eventmanager.dto.EventRequest;
 import com.eventmanager.dto.EventResponse;
+import com.eventmanager.dto.TicketRequest;
 import com.eventmanager.service.EventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,20 @@ public class EventController {
     public ResponseEntity<EventResponse> updateEvent(@PathVariable Long id,
                                                      @Valid @RequestBody EventRequest request) {
         return ResponseEntity.ok(eventService.updateEvent(id, request));
+    }
+
+    @PostMapping("/{id}/tickets/reserve")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<EventResponse> reserveTickets(@PathVariable Long id,
+                                                        @Valid @RequestBody TicketRequest request) {
+        return ResponseEntity.ok(eventService.reserveTickets(id, request.getCount()));
+    }
+
+    @PostMapping("/{id}/tickets/release")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<EventResponse> releaseTickets(@PathVariable Long id,
+                                                        @Valid @RequestBody TicketRequest request) {
+        return ResponseEntity.ok(eventService.releaseTickets(id, request.getCount()));
     }
 
     @DeleteMapping("/{id}")

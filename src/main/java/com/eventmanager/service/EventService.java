@@ -108,6 +108,38 @@ public class EventService {
         return updated;
     }
 
+    @CachePut(value = "events", key = "#id")
+    @Transactional
+    public EventResponse reserveTickets(Long id, int count) {
+        Event event = eventRepository.findByIdWithDetails(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
+        int available = event.getTicketsAvailable();
+        if (available - count < 0) {
+            throw new IllegalArgumentException(
+                    "Cannot reserve " + count + " tickets; only " + available + " available");
+        }
+        event.setTicketsAvailable(available - count);
+        EventResponse updated = toResponse(eventRepository.save(event));
+        cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
+        return updated;
+    }
+
+    @CachePut(value = "events", key = "#id")
+    @Transactional
+    public EventResponse releaseTickets(Long id, int count) {
+        Event event = eventRepository.findByIdWithDetails(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
+        int capacity = event.getVenue().getCapacity();
+        if (event.getTicketsAvailable() + count > capacity) {
+            throw new IllegalArgumentException(
+                    "Cannot release " + count + " tickets; would exceed venue capacity of " + capacity);
+        }
+        event.setTicketsAvailable(event.getTicketsAvailable() + count);
+        EventResponse updated = toResponse(eventRepository.save(event));
+        cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
+        return updated;
+    }
+
     @CacheEvict(value = "events", key = "#id")
     @Transactional
     public void deleteEvent(Long id) {
