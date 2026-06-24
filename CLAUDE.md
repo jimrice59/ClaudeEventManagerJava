@@ -106,13 +106,15 @@ HTTP Request
 | GET | `/api/performers/{id}` | public | cached |
 | POST | `/api/performers` | ADMIN | Cassandra dual-write |
 | PUT | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
+| POST | `/api/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write |
+| DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write |
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain`:
 - Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
 - Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**` (includes ticket reserve/release sub-routes)
-- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**`, `DELETE /api/events/**`, `/api/admin/**`
+- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**` (includes video sub-routes), `DELETE /api/events/**`, `/api/admin/**`
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
@@ -139,7 +141,7 @@ All three services cache individual records by ID with a 1-hour TTL:
 |---|---|---|---|---|
 | `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent`, `reserveTickets`, `releaseTickets` | `deleteEvent` |
 | `"venues"` | `VenueService` | `getVenueById` | `createVenue`, `updateVenue` | `deleteVenue` |
-| `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer` | `deletePerformer` |
+| `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer`, `addVideo`, `deleteVideo` | `deletePerformer` |
 
 List endpoints (`getAll*`, `getVenuesByCity`, `searchPerformers`, `getPerformersByGenre`, `getEventsByVenue`, `getEventsBetween`) are not cached — list invalidation is not implemented.
 
@@ -148,13 +150,14 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 ### Data model relationships
 - `Event` → `Venue`: `@ManyToOne` (an event has exactly one venue; venue is not owning side)
 - `Event` ↔ `Performer`: `@ManyToMany` via join table `event_performers`; `Event` is the owning side
-- All associations are `FETCH_TYPE.LAZY`; `EventRepository` uses JPQL `JOIN FETCH` queries (`findByIdWithDetails`, `findAllWithDetails`) to load associations in a single query and avoid N+1
+- `Performer` ↔ `Video`: `@ManyToMany` via join table `performer_videos` (`performer_id`, `video_id`); `Performer` is the owning side. `Video` rows are deduplicated by URL — `addVideo` reuses an existing `Video` if the URL already exists. Removing a video from a performer does not delete the `Video` row (other performers may reference it).
+- All associations are `FETCH_TYPE.LAZY`; `EventRepository` uses JPQL `JOIN FETCH` queries (`findByIdWithDetails`, `findAllWithDetails`) and `PerformerRepository` uses `LEFT JOIN FETCH` queries (`findAllWithVideos`, `findByIdWithVideos`, etc.) to load associations in a single query and avoid N+1. `LEFT JOIN FETCH` is used for performers so that performers without any videos are still returned.
 
 ### JWT flow
 `JwtTokenProvider` reads `jwt.secret` (BASE64-encoded) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` extracts the token, validates it, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`.
 
 ### DTO separation
-Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. `TicketRequest` carries a single `count` field (`@NotNull @Min(1)`) used by the reserve/release endpoints. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
+Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. `TicketRequest` carries a single `count` field (`@NotNull @Min(1)`) used by the reserve/release endpoints. `VideoRequest` carries a single `url` field (`@NotBlank @URL`) used by the performer video endpoints. `PerformerDto` includes `Set<String> videoUrls` as output (populated from the join); video management is done through dedicated endpoints, not through the create/update payload. Mapping is done in service `toResponse()` / `toDto()` methods, not via a separate mapper library.
 
 ### Dependency injection
 Three DI forms are used, each for a different reason:
@@ -171,7 +174,7 @@ Every service, controller, and security class declares dependencies as `private 
 | `AuthService` | `AuthenticationManager`, `UserRepository`, `PasswordEncoder`, `JwtTokenProvider` |
 | `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository`, `VenueService`, `PerformerService`, `CassandraAsyncWriter` |
 | `VenueService` | `VenueRepository` |
-| `PerformerService` | `PerformerRepository`, `CassandraAsyncWriter` |
+| `PerformerService` | `PerformerRepository`, `VideoRepository`, `CassandraAsyncWriter` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
@@ -260,9 +263,9 @@ Update the `image:` field to your registry path before applying.
 Both `EventService` and `PerformerService` write to Postgres first (synchronous, within the JPA transaction), then fire an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
 **Performers**
-- Entity: `cassandra/model/CassandraPerformer.java` — `@Table("performers")` with `id` as partition key; fields: `name`, `genre`, `bio`
+- Entity: `cassandra/model/CassandraPerformer.java` — `@Table("performers")` with `id` as partition key; fields: `name`, `genre`, `bio`, `videoUrls` (`Set<String>` → Cassandra `SET<text>`)
 - Repository: `cassandra/repository/PerformerCassandraRepository.java` — `CassandraRepository<CassandraPerformer, Long>`
-- `PerformerService` calls `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` after the Postgres write
+- `PerformerService` calls `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` after the Postgres write; `addVideo` and `deleteVideo` also call `savePerformer()` so the Cassandra `video_urls` set stays in sync
 
 **Events**
 - Entity: `cassandra/model/CassandraEvent.java` — `@Table("events")` with `id` as partition key; fields: `name`, `description`, `eventDate`, `ticketPrice`, `ticketsAvailable`, `venueId`, `createdAt`, `updatedAt`. The `ManyToMany` performers relationship is not stored — it maps poorly to a Cassandra column and `CassandraPerformer` does not store event IDs either.
@@ -287,12 +290,12 @@ Holds both repositories with `@Autowired(required = false)` field injection. Eac
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 
-**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter` directly via constructor — no `ReflectionTestUtils` needed. The "absent Cassandra" scenario moved to `CassandraAsyncWriter` and is no longer tested at the service level.
+**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter` and `VideoRepository` directly via constructor — no `ReflectionTestUtils` needed. Constructor: `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter)`. The "absent Cassandra" scenario moved to `CassandraAsyncWriter` and is no longer tested at the service level. Repository stubs use the new video-aware method names (`findAllWithVideos`, `findByIdWithVideos`, etc.).
 
 **`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, 403 for unauthenticated requests, 404 with error body.
 
 **`@WebMvcTest` caveat:** `@EnableJpaRepositories` on `EventManagerApplication` causes `@WebMvcTest` slices to fail (JPA is forced into the context but `entityManagerFactory` isn't auto-configured by the slice). Controller tests use `@SpringBootTest + @AutoConfigureMockMvc + @ActiveProfiles("test")` instead.
 
-**Async Cassandra in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` methods run synchronously. This is fine: tests verify that `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` are called, not that they ran on a background thread. `CassandraAsyncWriter` is constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, cassandraAsyncWriter)` with a Mockito mock is all that is needed — no `ReflectionTestUtils`.
+**Async Cassandra in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` methods run synchronously. This is fine: tests verify that `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` are called, not that they ran on a background thread. `CassandraAsyncWriter` and `VideoRepository` are constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter)` with Mockito mocks is all that is needed — no `ReflectionTestUtils`.
 
 **`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return 403 (not 401) because no `AuthenticationEntryPoint` is configured in `SecurityConfig`.
