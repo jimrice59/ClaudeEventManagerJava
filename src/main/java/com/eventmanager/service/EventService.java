@@ -1,5 +1,6 @@
 package com.eventmanager.service;
 
+import com.eventmanager.cassandra.model.CassandraEvent;
 import com.eventmanager.dto.EventRequest;
 import com.eventmanager.dto.EventResponse;
 import com.eventmanager.exception.ResourceNotFoundException;
@@ -31,6 +32,7 @@ public class EventService {
     private final PerformerRepository performerRepository;
     private final VenueService venueService;
     private final PerformerService performerService;
+    private final CassandraAsyncWriter cassandraAsyncWriter;
 
     @Transactional(readOnly = true)
     public List<EventResponse> getAllEvents() {
@@ -78,7 +80,9 @@ public class EventService {
                 .performers(performers)
                 .build();
 
-        return toResponse(eventRepository.save(event));
+        EventResponse saved = toResponse(eventRepository.save(event));
+        cassandraAsyncWriter.saveEvent(toCassandraEntity(saved));
+        return saved;
     }
 
     @CachePut(value = "events", key = "#id")
@@ -97,7 +101,9 @@ public class EventService {
         event.setVenue(venue);
         event.setPerformers(resolvePerformers(request.getPerformerIds()));
 
-        return toResponse(eventRepository.save(event));
+        EventResponse updated = toResponse(eventRepository.save(event));
+        cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
+        return updated;
     }
 
     @CacheEvict(value = "events", key = "#id")
@@ -107,6 +113,20 @@ public class EventService {
             throw new ResourceNotFoundException("Event", "id", id);
         }
         eventRepository.deleteById(id);
+        cassandraAsyncWriter.deleteEvent(id);
+    }
+
+    private CassandraEvent toCassandraEntity(EventResponse response) {
+        return CassandraEvent.builder()
+                .id(response.getId())
+                .name(response.getName())
+                .description(response.getDescription())
+                .eventDate(response.getEventDate())
+                .ticketPrice(response.getTicketPrice())
+                .venueId(response.getVenue().getId())
+                .createdAt(response.getCreatedAt())
+                .updatedAt(response.getUpdatedAt())
+                .build();
     }
 
     private Set<Performer> resolvePerformers(Set<Long> performerIds) {
