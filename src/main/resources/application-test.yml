@@ -18,6 +18,7 @@ spring:
     exclude:
       - org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration
       - org.springframework.boot.autoconfigure.data.cassandra.CassandraRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
 
 jwt:
   secret: dGVzdFNlY3JldEtleUZvclRlc3RpbmdQdXJwb3Nlc09ubHkxMjM0NTY3ODk=

@@ -3,6 +3,8 @@ package com.eventmanager.service;
 import com.eventmanager.cassandra.model.CassandraPerformer;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
+import com.eventmanager.kafka.PerformerVideoEventPublisher;
+import com.eventmanager.kafka.VideoEvent;
 import com.eventmanager.model.Performer;
 import com.eventmanager.model.Video;
 import com.eventmanager.repository.PerformerRepository;
@@ -26,6 +28,7 @@ public class PerformerService {
     private final PerformerRepository performerRepository;
     private final VideoRepository videoRepository;
     private final CassandraAsyncWriter cassandraAsyncWriter;
+    private final PerformerVideoEventPublisher videoEventPublisher;
 
     @Transactional(readOnly = true)
     public List<PerformerDto> getAllPerformers() {
@@ -109,6 +112,7 @@ public class PerformerService {
         performer.getVideos().add(video);
         PerformerDto saved = toDto(performerRepository.save(performer));
         cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
+        videoEventPublisher.publish(new VideoEvent("ADD", performerId, video.getId()));
         return saved;
     }
 
@@ -118,12 +122,15 @@ public class PerformerService {
         log.info("Removing video from performer id={}", performerId);
         Performer performer = performerRepository.findByIdWithVideos(performerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Performer", "id", performerId));
-        boolean removed = performer.getVideos().removeIf(v -> v.getUrl().equals(url));
-        if (!removed) {
-            throw new ResourceNotFoundException("Video", "url", url);
-        }
+        Video toRemove = performer.getVideos().stream()
+                .filter(v -> v.getUrl().equals(url))
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("Video", "url", url));
+        Long videoId = toRemove.getId();
+        performer.getVideos().remove(toRemove);
         PerformerDto saved = toDto(performerRepository.save(performer));
         cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
+        videoEventPublisher.publish(new VideoEvent("DELETE", performerId, videoId));
         return saved;
     }
 

@@ -4,6 +4,7 @@ import com.eventmanager.cassandra.model.CassandraPerformer;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Performer;
+import com.eventmanager.kafka.PerformerVideoEventPublisher;
 import com.eventmanager.repository.PerformerRepository;
 import com.eventmanager.repository.VideoRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,9 @@ class PerformerServiceTest {
     @Mock
     private CassandraAsyncWriter cassandraAsyncWriter;
 
+    @Mock
+    private PerformerVideoEventPublisher videoEventPublisher;
+
     private PerformerService performerService;
 
     private Performer performer;
@@ -38,7 +42,7 @@ class PerformerServiceTest {
 
     @BeforeEach
     void setUp() {
-        performerService = new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter);
+        performerService = new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher);
 
         performer = Performer.builder()
                 .id(1L)
