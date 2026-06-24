@@ -48,6 +48,7 @@ docker run -p 8080:8080 \
   -e DB_HOST=host.docker.internal \
   -e REDIS_HOST=host.docker.internal \
   -e CASSANDRA_HOST=host.docker.internal \
+  -e KAFKA_BOOTSTRAP_SERVERS=host.docker.internal:9092 \
   event-manager
 ```
 
@@ -57,7 +58,7 @@ The Dockerfile is a two-stage build:
 
 `.dockerignore` excludes `target/`, `.git/`, `.claude/`, `*.md`, and `dump.rdb`.
 
-All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
+All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
 
 `docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` from both `app:8080` (docker-compose mode) and `host.docker.internal:8080` (local `mvn spring-boot:run` mode) — unreachable targets show as DOWN without affecting the other. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
 
@@ -82,6 +83,8 @@ HTTP Request
   → Repository (JPA / PostgreSQL)
        ↓ (event and performer writes, fire-and-forget)
   → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository)
+       ↓ (performer video add/delete, fire-and-forget with retry)
+  → PerformerVideoEventPublisher (@Async → kafkaExecutor thread pool → KafkaTemplate → performer-video-events topic)
 ```
 
 ### API endpoints
@@ -106,8 +109,8 @@ HTTP Request
 | GET | `/api/performers/{id}` | public | cached |
 | POST | `/api/performers` | ADMIN | Cassandra dual-write |
 | PUT | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
-| POST | `/api/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write |
-| DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write |
+| POST | `/api/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write; Kafka event |
+| DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
 ### Authorization model
@@ -174,13 +177,13 @@ Every service, controller, and security class declares dependencies as `private 
 | `AuthService` | `AuthenticationManager`, `UserRepository`, `PasswordEncoder`, `JwtTokenProvider` |
 | `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository`, `VenueService`, `PerformerService`, `CassandraAsyncWriter` |
 | `VenueService` | `VenueRepository` |
-| `PerformerService` | `PerformerRepository`, `VideoRepository`, `CassandraAsyncWriter` |
+| `PerformerService` | `PerformerRepository`, `VideoRepository`, `CassandraAsyncWriter`, `PerformerVideoEventPublisher` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
 
-**Field injection via `@Autowired(required = false)` — optional Cassandra repositories**
-`CassandraAsyncWriter` holds two optional repositories (`PerformerCassandraRepository`, `EventCassandraRepository`), both field-injected with `required = false`. Spring skips injection when the beans are absent (test profile excludes Cassandra autoconfiguration). Each method short-circuits with a null check. Constructor injection cannot express optionality without an `Optional<>` wrapper.
+**Field injection via `@Autowired(required = false)` — optional infrastructure beans**
+`CassandraAsyncWriter` holds two optional repositories (`PerformerCassandraRepository`, `EventCassandraRepository`), both field-injected with `required = false`. `PerformerVideoEventPublisher` holds an optional `KafkaTemplate<String, VideoEvent>`, also field-injected with `required = false`. Spring skips injection when the beans are absent (test profile excludes Cassandra and Kafka autoconfiguration). Each method short-circuits with a null check. Constructor injection cannot express optionality without an `Optional<>` wrapper.
 
 **`@Bean` factory methods in `@Configuration` classes — explicit bean registration**
 `SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager.
@@ -194,9 +197,17 @@ Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are re
 
 `@Async` requires the annotated method to be on a different bean — calling an `@Async` method on `this` bypasses the Spring AOP proxy and runs synchronously. `CassandraAsyncWriter` is a dedicated `@Service` for this reason; both `PerformerService` and `EventService` inject it via constructor and delegate to it.
 
-`AsyncConfig` registers a named `ThreadPoolTaskExecutor` bean (`cassandraExecutor`): core pool 2, max 5, queue capacity 100, thread prefix `cassandra-async-`. The named executor is referenced in `@Async("cassandraExecutor")` so Cassandra writes don't contend with any other async work.
+`AsyncConfig` registers two named `ThreadPoolTaskExecutor` beans:
+- `cassandraExecutor`: core pool 2, max 5, queue 100, thread prefix `cassandra-async-` — used by `CassandraAsyncWriter`
+- `kafkaExecutor`: core pool 2, max 5, queue 100, thread prefix `kafka-async-` — used by `PerformerVideoEventPublisher`
+
+Keeping them separate prevents Cassandra and Kafka I/O from competing for threads.
 
 Cassandra write failures are caught inside `CassandraAsyncWriter` and logged as `ERROR` — there is no caller to propagate them to once the method returns asynchronously.
+
+**Kafka** publishes are asynchronous with retry. `PerformerService.addVideo` and `deleteVideo` call `PerformerVideoEventPublisher.publish(VideoEvent)` after the Postgres write. The publisher method is `@Async("kafkaExecutor")`, so the HTTP response is returned before the Kafka send starts. On the background thread, a `RetryTemplate` with `ExponentialBackOffPolicy` (initial 10 ms, multiplier 2.0) and `SimpleRetryPolicy` (10 attempts) wraps `kafkaTemplate.send(...).get()`. Calling `.get()` blocks the background thread until the broker acknowledges, which is the only way to surface send failures to the retry mechanism. On retry, `WARN` is logged per attempt. After all 10 attempts fail, the recovery callback logs `ERROR` with the final exception and returns — no exception propagates. If `KafkaTemplate` is absent (test profile), `publish()` returns immediately.
+
+`@Async` and `@Retryable` cannot be stacked on the same method — `@Async` submits to a thread pool and returns a proxy immediately, so `@Retryable` on the calling thread sees no failure to retry. Using `RetryTemplate` programmatically inside the `@Async` method avoids this AOP ordering problem. No `@EnableRetry` is needed.
 
 **Alternative async approaches (not implemented):**
 - `ReactiveCassandraRepository` (`Mono`/`Flux`) — works with `.subscribe()` in a servlet app but error handling is harder and there is no clean integration with the servlet thread model.
@@ -259,6 +270,40 @@ Probes use the dedicated Spring Boot Kubernetes endpoints:
 
 Update the `image:` field to your registry path before applying.
 
+### Kafka messaging (performer video events)
+`spring-kafka` + `spring-retry` are on the classpath. Kafka is optional — `KafkaTemplate` is `@Autowired(required = false)` and `KafkaAutoConfiguration` is excluded in the test profile, so the app starts and tests pass without a broker.
+
+**Infrastructure:** Bitnami Kafka 3.7 in KRaft mode (no ZooKeeper). Dual listeners: `EXTERNAL://localhost:9092` for host-to-container access, `INTERNAL://kafka:29092` for container-to-container. The `app` service connects via `KAFKA_BOOTSTRAP_SERVERS: kafka:29092`. Healthcheck uses `kafka-topics.sh --list` with `start_period: 30s`.
+
+**`VideoEvent`** — `kafka/VideoEvent.java` — Java record: `(String operation, Long performerId, Long videoId)`. `operation` is `"ADD"` or `"DELETE"`. Serialized to JSON by `JsonSerializer`.
+
+**`PerformerVideoEventPublisher`** — `kafka/PerformerVideoEventPublisher.java`:
+- Topic: `performer-video-events` (constant `TOPIC`)
+- Performer ID is used as the Kafka message key so all events for a given performer land on the same partition (ordered delivery)
+- `publish(VideoEvent)` is `@Async("kafkaExecutor")` — dispatched to the `kafkaExecutor` thread pool, HTTP response returns before any Kafka I/O
+- Inside the background thread, a `RetryTemplate` with `ExponentialBackOffPolicy(initialInterval=10ms, multiplier=2.0)` and `SimpleRetryPolicy(maxAttempts=10)` wraps `kafkaTemplate.send(TOPIC, key, event).get()`
+- `.get()` blocks the background thread until the broker ACKs or fails — this is required to make send failures visible to the retry mechanism
+- On each attempt failure: `WARN` logged with attempt number, performer ID, video ID, and error message
+- After all 10 attempts exhausted: recovery callback logs `ERROR` with final exception; no exception propagates
+- If `KafkaTemplate` is null (test profile): returns immediately
+
+**Retry schedule** (10ms start, 2× doubling, no cap configured):
+
+| Attempt | Delay before attempt |
+|---|---|
+| 1 | — |
+| 2 | 10 ms |
+| 3 | 20 ms |
+| 4 | 40 ms |
+| 5 | 80 ms |
+| 6 | 160 ms |
+| 7 | 320 ms |
+| 8 | 640 ms |
+| 9 | 1280 ms |
+| 10 | 2560 ms |
+
+**Why `RetryTemplate` not `@Retryable`:** Stacking `@Async` and `@Retryable` on the same method is broken — `@Async` submits to a thread pool and returns a proxy future immediately, so the `@Retryable` proxy on the calling thread has nothing to retry. Using `RetryTemplate` programmatically inside the already-dispatched `@Async` method avoids the AOP proxy ordering conflict. No `@EnableRetry` annotation is needed.
+
 ### Cassandra dual-write (events and performers)
 Both `EventService` and `PerformerService` write to Postgres first (synchronous, within the JPA transaction), then fire an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
@@ -280,7 +325,7 @@ Holds both repositories with `@Autowired(required = false)` field injection. Eac
 `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` prevents Spring Data JPA from scanning the `cassandra.repository` package, avoiding multi-store conflicts.
 
 ### Test profile
-`src/main/resources/application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration` + `CassandraRepositoriesAutoConfiguration` so Cassandra is not required during tests.
+`src/main/resources/application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration`, `CassandraRepositoriesAutoConfiguration`, and `KafkaAutoConfiguration` so neither Cassandra nor Kafka is required during tests.
 
 ### Test classes
 
@@ -290,12 +335,12 @@ Holds both repositories with `@Autowired(required = false)` field injection. Eac
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 
-**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter` and `VideoRepository` directly via constructor — no `ReflectionTestUtils` needed. Constructor: `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter)`. The "absent Cassandra" scenario moved to `CassandraAsyncWriter` and is no longer tested at the service level. Repository stubs use the new video-aware method names (`findAllWithVideos`, `findByIdWithVideos`, etc.).
+**`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter`, `VideoRepository`, and `PerformerVideoEventPublisher` directly via constructor — no `ReflectionTestUtils` needed. Constructor: `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher)`. The "absent Cassandra/Kafka" scenarios are handled by null-check guards in `CassandraAsyncWriter` and `PerformerVideoEventPublisher` and are not tested at the service level. Repository stubs use the new video-aware method names (`findAllWithVideos`, `findByIdWithVideos`, etc.).
 
 **`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, 403 for unauthenticated requests, 404 with error body.
 
 **`@WebMvcTest` caveat:** `@EnableJpaRepositories` on `EventManagerApplication` causes `@WebMvcTest` slices to fail (JPA is forced into the context but `entityManagerFactory` isn't auto-configured by the slice). Controller tests use `@SpringBootTest + @AutoConfigureMockMvc + @ActiveProfiles("test")` instead.
 
-**Async Cassandra in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` methods run synchronously. This is fine: tests verify that `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` are called, not that they ran on a background thread. `CassandraAsyncWriter` and `VideoRepository` are constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter)` with Mockito mocks is all that is needed — no `ReflectionTestUtils`.
+**Async Cassandra/Kafka in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` and `PerformerVideoEventPublisher` methods run synchronously. This is fine: tests verify that the collaborators are called, not that they ran on a background thread. All four dependencies are constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher)` with Mockito mocks is all that is needed — no `ReflectionTestUtils`.
 
 **`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return 403 (not 401) because no `AuthenticationEntryPoint` is configured in `SecurityConfig`.
