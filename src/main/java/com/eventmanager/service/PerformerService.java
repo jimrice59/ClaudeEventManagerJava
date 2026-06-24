@@ -4,7 +4,9 @@ import com.eventmanager.cassandra.model.CassandraPerformer;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Performer;
+import com.eventmanager.model.Video;
 import com.eventmanager.repository.PerformerRepository;
+import com.eventmanager.repository.VideoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -22,12 +24,13 @@ import java.util.stream.Collectors;
 public class PerformerService {
 
     private final PerformerRepository performerRepository;
+    private final VideoRepository videoRepository;
     private final CassandraAsyncWriter cassandraAsyncWriter;
 
     @Transactional(readOnly = true)
     public List<PerformerDto> getAllPerformers() {
         log.debug("Fetching all performers");
-        List<PerformerDto> performers = performerRepository.findAll().stream()
+        List<PerformerDto> performers = performerRepository.findAllWithVideos().stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
         log.debug("Found {} performers", performers.size());
@@ -38,7 +41,7 @@ public class PerformerService {
     @Transactional(readOnly = true)
     public PerformerDto getPerformerById(Long id) {
         log.debug("Fetching performer with id={}", id);
-        return performerRepository.findById(id)
+        return performerRepository.findByIdWithVideos(id)
                 .map(this::toDto)
                 .orElseThrow(() -> {
                     log.warn("Performer not found with id={}", id);
@@ -49,7 +52,7 @@ public class PerformerService {
     @Transactional(readOnly = true)
     public List<PerformerDto> searchPerformers(String name) {
         log.debug("Searching performers by name='{}'", name);
-        List<PerformerDto> results = performerRepository.findByNameContainingIgnoreCase(name).stream()
+        List<PerformerDto> results = performerRepository.findByNameContainingIgnoreCaseWithVideos(name).stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
         log.debug("Found {} performers matching name='{}'", results.size(), name);
@@ -59,7 +62,7 @@ public class PerformerService {
     @Transactional(readOnly = true)
     public List<PerformerDto> getPerformersByGenre(String genre) {
         log.debug("Fetching performers by genre='{}'", genre);
-        List<PerformerDto> results = performerRepository.findByGenreIgnoreCase(genre).stream()
+        List<PerformerDto> results = performerRepository.findByGenreIgnoreCaseWithVideos(genre).stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
         log.debug("Found {} performers with genre='{}'", results.size(), genre);
@@ -81,7 +84,7 @@ public class PerformerService {
     @Transactional
     public PerformerDto updatePerformer(Long id, PerformerDto dto) {
         log.info("Updating performer id={}", id);
-        Performer performer = performerRepository.findById(id)
+        Performer performer = performerRepository.findByIdWithVideos(id)
                 .orElseThrow(() -> {
                     log.warn("Performer not found with id={}", id);
                     return new ResourceNotFoundException("Performer", "id", id);
@@ -91,6 +94,35 @@ public class PerformerService {
         performer.setBio(dto.getBio());
         PerformerDto saved = toDto(performerRepository.save(performer));
         log.info("Updated performer id={} name='{}'", saved.getId(), saved.getName());
+        cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
+        return saved;
+    }
+
+    @CachePut(value = "performers", key = "#performerId")
+    @Transactional
+    public PerformerDto addVideo(Long performerId, String url) {
+        log.info("Adding video to performer id={}", performerId);
+        Performer performer = performerRepository.findByIdWithVideos(performerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Performer", "id", performerId));
+        Video video = videoRepository.findByUrl(url)
+                .orElseGet(() -> videoRepository.save(Video.builder().url(url).build()));
+        performer.getVideos().add(video);
+        PerformerDto saved = toDto(performerRepository.save(performer));
+        cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
+        return saved;
+    }
+
+    @CachePut(value = "performers", key = "#performerId")
+    @Transactional
+    public PerformerDto deleteVideo(Long performerId, String url) {
+        log.info("Removing video from performer id={}", performerId);
+        Performer performer = performerRepository.findByIdWithVideos(performerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Performer", "id", performerId));
+        boolean removed = performer.getVideos().removeIf(v -> v.getUrl().equals(url));
+        if (!removed) {
+            throw new ResourceNotFoundException("Video", "url", url);
+        }
+        PerformerDto saved = toDto(performerRepository.save(performer));
         cassandraAsyncWriter.savePerformer(toCassandraEntity(saved));
         return saved;
     }
@@ -114,6 +146,9 @@ public class PerformerService {
                 .name(performer.getName())
                 .genre(performer.getGenre())
                 .bio(performer.getBio())
+                .videoUrls(performer.getVideos().stream()
+                        .map(Video::getUrl)
+                        .collect(Collectors.toSet()))
                 .build();
     }
 
@@ -131,6 +166,7 @@ public class PerformerService {
                 .name(dto.getName())
                 .genre(dto.getGenre())
                 .bio(dto.getBio())
+                .videoUrls(dto.getVideoUrls())
                 .build();
     }
 }

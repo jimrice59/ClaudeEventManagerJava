@@ -4,6 +4,9 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
+import java.util.HashSet;
+import java.util.Set;
+
 @Entity
 @Table(name = "performers")
 @Getter
@@ -26,4 +29,13 @@ public class Performer {
 
     @Column(columnDefinition = "TEXT")
     private String bio;
+
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "performer_videos",
+            joinColumns = @JoinColumn(name = "performer_id"),
+            inverseJoinColumns = @JoinColumn(name = "video_id")
+    )
+    @Builder.Default
+    private Set<Video> videos = new HashSet<>();
 }

@@ -1,6 +1,7 @@
 package com.eventmanager.controller;
 
 import com.eventmanager.dto.PerformerDto;
+import com.eventmanager.dto.VideoRequest;
 import com.eventmanager.service.PerformerService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +48,20 @@ public class PerformerController {
     public ResponseEntity<PerformerDto> updatePerformer(@PathVariable Long id,
                                                         @Valid @RequestBody PerformerDto dto) {
         return ResponseEntity.ok(performerService.updatePerformer(id, dto));
+    }
+
+    @PostMapping("/{id}/videos")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PerformerDto> addVideo(@PathVariable Long id,
+                                                 @Valid @RequestBody VideoRequest request) {
+        return ResponseEntity.ok(performerService.addVideo(id, request.getUrl()));
+    }
+
+    @DeleteMapping("/{id}/videos")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PerformerDto> deleteVideo(@PathVariable Long id,
+                                                    @Valid @RequestBody VideoRequest request) {
+        return ResponseEntity.ok(performerService.deleteVideo(id, request.getUrl()));
     }
 
     @DeleteMapping("/{id}")

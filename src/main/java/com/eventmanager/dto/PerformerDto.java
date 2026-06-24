@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.Set;
 
 @Data
 @Builder
@@ -22,4 +23,6 @@ public class PerformerDto implements Serializable {
     private String genre;
 
     private String bio;
+
+    private Set<String> videoUrls;
 }

@@ -5,6 +5,8 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.cassandra.core.mapping.Column;
 import org.springframework.data.cassandra.core.mapping.Table;
 
+import java.util.Set;
+
 @Table("performers")
 @Getter
 @Setter
@@ -24,4 +26,7 @@ public class CassandraPerformer {
 
     @Column("bio")
     private String bio;
+
+    @Column("video_urls")
+    private Set<String> videoUrls;
 }

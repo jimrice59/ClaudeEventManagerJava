@@ -5,6 +5,7 @@ import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Performer;
 import com.eventmanager.repository.PerformerRepository;
+import com.eventmanager.repository.VideoRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,6 +26,9 @@ class PerformerServiceTest {
     private PerformerRepository performerRepository;
 
     @Mock
+    private VideoRepository videoRepository;
+
+    @Mock
     private CassandraAsyncWriter cassandraAsyncWriter;
 
     private PerformerService performerService;
@@ -34,7 +38,7 @@ class PerformerServiceTest {
 
     @BeforeEach
     void setUp() {
-        performerService = new PerformerService(performerRepository, cassandraAsyncWriter);
+        performerService = new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter);
 
         performer = Performer.builder()
                 .id(1L)
@@ -55,7 +59,7 @@ class PerformerServiceTest {
 
     @Test
     void getAllPerformers_returnsAllPerformers() {
-        when(performerRepository.findAll()).thenReturn(List.of(performer));
+        when(performerRepository.findAllWithVideos()).thenReturn(List.of(performer));
 
         List<PerformerDto> result = performerService.getAllPerformers();
 
@@ -66,7 +70,7 @@ class PerformerServiceTest {
 
     @Test
     void getAllPerformers_returnsEmptyList() {
-        when(performerRepository.findAll()).thenReturn(List.of());
+        when(performerRepository.findAllWithVideos()).thenReturn(List.of());
 
         assertThat(performerService.getAllPerformers()).isEmpty();
     }
@@ -75,7 +79,7 @@ class PerformerServiceTest {
 
     @Test
     void getPerformerById_returnsPerformer() {
-        when(performerRepository.findById(1L)).thenReturn(Optional.of(performer));
+        when(performerRepository.findByIdWithVideos(1L)).thenReturn(Optional.of(performer));
 
         PerformerDto result = performerService.getPerformerById(1L);
 
@@ -87,7 +91,7 @@ class PerformerServiceTest {
 
     @Test
     void getPerformerById_throwsWhenNotFound() {
-        when(performerRepository.findById(99L)).thenReturn(Optional.empty());
+        when(performerRepository.findByIdWithVideos(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> performerService.getPerformerById(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -99,7 +103,7 @@ class PerformerServiceTest {
 
     @Test
     void searchPerformers_returnsMatchingPerformers() {
-        when(performerRepository.findByNameContainingIgnoreCase("beat"))
+        when(performerRepository.findByNameContainingIgnoreCaseWithVideos("beat"))
                 .thenReturn(List.of(performer));
 
         List<PerformerDto> result = performerService.searchPerformers("beat");
@@ -110,7 +114,7 @@ class PerformerServiceTest {
 
     @Test
     void searchPerformers_returnsEmptyWhenNoMatch() {
-        when(performerRepository.findByNameContainingIgnoreCase("xyz")).thenReturn(List.of());
+        when(performerRepository.findByNameContainingIgnoreCaseWithVideos("xyz")).thenReturn(List.of());
 
         assertThat(performerService.searchPerformers("xyz")).isEmpty();
     }
@@ -119,7 +123,7 @@ class PerformerServiceTest {
 
     @Test
     void getPerformersByGenre_returnsMatchingPerformers() {
-        when(performerRepository.findByGenreIgnoreCase("rock")).thenReturn(List.of(performer));
+        when(performerRepository.findByGenreIgnoreCaseWithVideos("rock")).thenReturn(List.of(performer));
 
         List<PerformerDto> result = performerService.getPerformersByGenre("rock");
 
@@ -129,7 +133,7 @@ class PerformerServiceTest {
 
     @Test
     void getPerformersByGenre_returnsEmptyWhenNoMatch() {
-        when(performerRepository.findByGenreIgnoreCase("jazz")).thenReturn(List.of());
+        when(performerRepository.findByGenreIgnoreCaseWithVideos("jazz")).thenReturn(List.of());
 
         assertThat(performerService.getPerformersByGenre("jazz")).isEmpty();
     }
@@ -158,7 +162,7 @@ class PerformerServiceTest {
                 .name("The Beatles (Remastered)").genre("Classic Rock").bio("Updated bio").build();
         Performer updated = Performer.builder()
                 .id(1L).name("The Beatles (Remastered)").genre("Classic Rock").bio("Updated bio").build();
-        when(performerRepository.findById(1L)).thenReturn(Optional.of(performer));
+        when(performerRepository.findByIdWithVideos(1L)).thenReturn(Optional.of(performer));
         when(performerRepository.save(any(Performer.class))).thenReturn(updated);
 
         PerformerDto result = performerService.updatePerformer(1L, update);
@@ -171,7 +175,7 @@ class PerformerServiceTest {
 
     @Test
     void updatePerformer_throwsWhenNotFound() {
-        when(performerRepository.findById(99L)).thenReturn(Optional.empty());
+        when(performerRepository.findByIdWithVideos(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> performerService.updatePerformer(99L, performerDto))
                 .isInstanceOf(ResourceNotFoundException.class)
