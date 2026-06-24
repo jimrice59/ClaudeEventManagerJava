@@ -76,6 +76,7 @@ public class EventService {
                 .description(request.getDescription())
                 .eventDate(request.getEventDate())
                 .ticketPrice(request.getTicketPrice())
+                .ticketsAvailable(request.getTicketsAvailable())
                 .venue(venue)
                 .performers(performers)
                 .build();
@@ -98,6 +99,7 @@ public class EventService {
         event.setDescription(request.getDescription());
         event.setEventDate(request.getEventDate());
         event.setTicketPrice(request.getTicketPrice());
+        event.setTicketsAvailable(request.getTicketsAvailable());
         event.setVenue(venue);
         event.setPerformers(resolvePerformers(request.getPerformerIds()));
 
@@ -123,6 +125,7 @@ public class EventService {
                 .description(response.getDescription())
                 .eventDate(response.getEventDate())
                 .ticketPrice(response.getTicketPrice())
+                .ticketsAvailable(response.getTicketsAvailable())
                 .venueId(response.getVenue().getId())
                 .createdAt(response.getCreatedAt())
                 .updatedAt(response.getUpdatedAt())
@@ -147,6 +150,7 @@ public class EventService {
                 .description(event.getDescription())
                 .eventDate(event.getEventDate())
                 .ticketPrice(event.getTicketPrice())
+                .ticketsAvailable(event.getTicketsAvailable())
                 .venue(venueService.toDto(event.getVenue()))
                 .performers(event.getPerformers().stream()
                         .map(performerService::toDto)

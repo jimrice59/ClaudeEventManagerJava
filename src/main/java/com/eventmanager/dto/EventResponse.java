@@ -21,6 +21,7 @@ public class EventResponse implements Serializable {
     private String description;
     private LocalDateTime eventDate;
     private BigDecimal ticketPrice;
+    private Integer ticketsAvailable;
     private VenueDto venue;
     private Set<PerformerDto> performers;
     private LocalDateTime createdAt;

@@ -1,6 +1,7 @@
 package com.eventmanager.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
@@ -37,6 +38,11 @@ public class Event {
     @NotNull
     @Column(nullable = false, precision = 7, scale = 2)
     private BigDecimal ticketPrice;
+
+    @NotNull
+    @Min(0)
+    @Column(nullable = false)
+    private Integer ticketsAvailable;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "venue_id", nullable = false)
