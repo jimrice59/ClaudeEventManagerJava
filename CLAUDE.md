@@ -94,6 +94,8 @@ HTTP Request
 | GET | `/api/events/{id}` | public | cached |
 | POST | `/api/events` | authenticated | Cassandra dual-write |
 | PUT | `/api/events/{id}` | authenticated | Cassandra dual-write |
+| POST | `/api/events/{id}/tickets/reserve` | authenticated | decrement `ticketsAvailable`; 400 if would go negative |
+| POST | `/api/events/{id}/tickets/release` | authenticated | increment `ticketsAvailable`; 400 if would exceed venue capacity |
 | DELETE | `/api/events/{id}` | ADMIN | Cassandra dual-write |
 | GET | `/api/venues` | public | optional `?city=` |
 | GET | `/api/venues/{id}` | public | cached |
@@ -109,7 +111,7 @@ HTTP Request
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain`:
 - Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
-- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**`
+- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**` (includes ticket reserve/release sub-routes)
 - Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**`, `DELETE /api/events/**`, `/api/admin/**`
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
@@ -124,7 +126,7 @@ Unauthenticated requests to protected endpoints return **403** (not 401) — no 
 | `ResourceNotFoundException` | 404 | Message from exception |
 | `AccessDeniedException` | 403 | Fixed message "Access denied"; must be declared before the `Exception` catch-all or `@PreAuthorize` rejections return 500 |
 | `BadCredentialsException` | 401 | Fixed message "Invalid username or password" |
-| `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email |
+| `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email and by `EventService` for invalid ticket counts |
 | `MethodArgumentNotValidException` | 400 | Returns `{ status, errors: { field: message }, timestamp }` — different shape from `ErrorResponse` |
 | `Exception` (catch-all) | 500 | Generic message |
 
@@ -135,7 +137,7 @@ All three services cache individual records by ID with a 1-hour TTL:
 
 | Cache name | Service | Cacheable | CachePut | CacheEvict |
 |---|---|---|---|---|
-| `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent` | `deleteEvent` |
+| `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent`, `reserveTickets`, `releaseTickets` | `deleteEvent` |
 | `"venues"` | `VenueService` | `getVenueById` | `createVenue`, `updateVenue` | `deleteVenue` |
 | `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer` | `deletePerformer` |
 
@@ -152,7 +154,7 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 `JwtTokenProvider` reads `jwt.secret` (BASE64-encoded) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` extracts the token, validates it, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`.
 
 ### DTO separation
-Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
+Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. `TicketRequest` carries a single `count` field (`@NotNull @Min(1)`) used by the reserve/release endpoints. Mapping is done in service `toResponse()` methods, not via a separate mapper library.
 
 ### Dependency injection
 Three DI forms are used, each for a different reason:
@@ -263,9 +265,9 @@ Both `EventService` and `PerformerService` write to Postgres first (synchronous,
 - `PerformerService` calls `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` after the Postgres write
 
 **Events**
-- Entity: `cassandra/model/CassandraEvent.java` — `@Table("events")` with `id` as partition key; fields: `name`, `description`, `eventDate`, `ticketPrice`, `venueId`, `createdAt`, `updatedAt`. The `ManyToMany` performers relationship is not stored — it maps poorly to a Cassandra column and `CassandraPerformer` does not store event IDs either.
+- Entity: `cassandra/model/CassandraEvent.java` — `@Table("events")` with `id` as partition key; fields: `name`, `description`, `eventDate`, `ticketPrice`, `ticketsAvailable`, `venueId`, `createdAt`, `updatedAt`. The `ManyToMany` performers relationship is not stored — it maps poorly to a Cassandra column and `CassandraPerformer` does not store event IDs either.
 - Repository: `cassandra/repository/EventCassandraRepository.java` — `CassandraRepository<CassandraEvent, Long>`
-- `EventService` calls `cassandraAsyncWriter.saveEvent()` / `deleteEvent()` after the Postgres write; `toCassandraEntity(EventResponse)` maps the response DTO to `CassandraEvent`, deriving `venueId` from `response.getVenue().getId()`
+- `EventService` calls `cassandraAsyncWriter.saveEvent()` / `deleteEvent()` after the Postgres write; `toCassandraEntity(EventResponse)` maps the response DTO to `CassandraEvent`, deriving `venueId` from `response.getVenue().getId()`. `reserveTickets` and `releaseTickets` also call `cassandraAsyncWriter.saveEvent()` after updating Postgres.
 
 **`CassandraAsyncWriter`**
 Holds both repositories with `@Autowired(required = false)` field injection. Each method null-checks its repository before writing, so the bean operates safely when Cassandra is excluded (test profile). Methods: `savePerformer`, `deletePerformer`, `saveEvent`, `deleteEvent` — all `@Async("cassandraExecutor")`.
