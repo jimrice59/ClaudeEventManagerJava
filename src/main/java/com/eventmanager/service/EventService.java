@@ -73,6 +73,7 @@ public class EventService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .eventDate(request.getEventDate())
+                .ticketPrice(request.getTicketPrice())
                 .venue(venue)
                 .performers(performers)
                 .build();
@@ -92,6 +93,7 @@ public class EventService {
         event.setName(request.getName());
         event.setDescription(request.getDescription());
         event.setEventDate(request.getEventDate());
+        event.setTicketPrice(request.getTicketPrice());
         event.setVenue(venue);
         event.setPerformers(resolvePerformers(request.getPerformerIds()));
 
@@ -124,6 +126,7 @@ public class EventService {
                 .name(event.getName())
                 .description(event.getDescription())
                 .eventDate(event.getEventDate())
+                .ticketPrice(event.getTicketPrice())
                 .venue(venueService.toDto(event.getVenue()))
                 .performers(event.getPerformers().stream()
                         .map(performerService::toDto)

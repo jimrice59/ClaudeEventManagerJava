@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Set;
 
@@ -19,6 +20,7 @@ public class EventResponse implements Serializable {
     private String name;
     private String description;
     private LocalDateTime eventDate;
+    private BigDecimal ticketPrice;
     private VenueDto venue;
     private Set<PerformerDto> performers;
     private LocalDateTime createdAt;

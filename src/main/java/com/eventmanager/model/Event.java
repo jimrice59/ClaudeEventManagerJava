@@ -34,6 +34,10 @@ public class Event {
     @Column(nullable = false)
     private LocalDateTime eventDate;
 
+    @NotNull
+    @Column(nullable = false, precision = 7, scale = 2)
+    private BigDecimal ticketPrice;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "venue_id", nullable = false)
     private Venue venue;
