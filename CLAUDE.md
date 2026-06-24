@@ -80,8 +80,8 @@ HTTP Request
   → Controller (validates input with @Valid)
   → Service (business logic, Redis cache annotations)
   → Repository (JPA / PostgreSQL)
-       ↓ (performer writes only, fire-and-forget)
-  → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → PerformerCassandraRepository)
+       ↓ (event and performer writes, fire-and-forget)
+  → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository)
 ```
 
 ### API endpoints
@@ -92,9 +92,9 @@ HTTP Request
 | POST | `/api/auth/login` | public | returns JWT |
 | GET | `/api/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
 | GET | `/api/events/{id}` | public | cached |
-| POST | `/api/events` | authenticated | |
-| PUT | `/api/events/{id}` | authenticated | |
-| DELETE | `/api/events/{id}` | ADMIN | |
+| POST | `/api/events` | authenticated | Cassandra dual-write |
+| PUT | `/api/events/{id}` | authenticated | Cassandra dual-write |
+| DELETE | `/api/events/{id}` | ADMIN | Cassandra dual-write |
 | GET | `/api/venues` | public | optional `?city=` |
 | GET | `/api/venues/{id}` | public | cached |
 | POST | `/api/venues` | ADMIN | |
@@ -167,15 +167,15 @@ Every service, controller, and security class declares dependencies as `private 
 | `VenueController` | `VenueService` |
 | `PerformerController` | `PerformerService` |
 | `AuthService` | `AuthenticationManager`, `UserRepository`, `PasswordEncoder`, `JwtTokenProvider` |
-| `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository` |
+| `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository`, `VenueService`, `PerformerService`, `CassandraAsyncWriter` |
 | `VenueService` | `VenueRepository` |
 | `PerformerService` | `PerformerRepository`, `CassandraAsyncWriter` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
 
-**Field injection via `@Autowired(required = false)` — one special case**
-`CassandraAsyncWriter.cassandraRepository` uses field injection because it is optional. `required = false` tells Spring to skip the field if no `PerformerCassandraRepository` bean is present (test profile excludes Cassandra autoconfiguration). `CassandraAsyncWriter` is always created as a bean; its methods short-circuit with a null check when the repository is absent. Constructor injection cannot express optionality without an `Optional<>` wrapper.
+**Field injection via `@Autowired(required = false)` — optional Cassandra repositories**
+`CassandraAsyncWriter` holds two optional repositories (`PerformerCassandraRepository`, `EventCassandraRepository`), both field-injected with `required = false`. Spring skips injection when the beans are absent (test profile excludes Cassandra autoconfiguration). Each method short-circuits with a null check. Constructor injection cannot express optionality without an `Optional<>` wrapper.
 
 **`@Bean` factory methods in `@Configuration` classes — explicit bean registration**
 `SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager.
@@ -185,9 +185,9 @@ Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are re
 ### I/O model
 **Postgres** calls are synchronous and blocking. Spring Data JPA uses JDBC — every `findById`, `save`, and `deleteById` holds the request thread until Postgres responds. The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool), so each request occupies one thread for its full duration.
 
-**Cassandra** writes are asynchronous via Spring's `@Async` mechanism. After the Postgres write commits, `PerformerService` calls `CassandraAsyncWriter.savePerformer()` / `deletePerformer()`, which returns immediately — the actual Cassandra I/O runs on the `cassandraExecutor` thread pool (configured in `AsyncConfig`). The HTTP response is returned before the Cassandra write completes.
+**Cassandra** writes are asynchronous via Spring's `@Async` mechanism. After the Postgres write commits, both `PerformerService` and `EventService` call the appropriate `CassandraAsyncWriter` method (`savePerformer`/`deletePerformer` or `saveEvent`/`deleteEvent`), which returns immediately — the actual Cassandra I/O runs on the `cassandraExecutor` thread pool (configured in `AsyncConfig`). The HTTP response is returned before the Cassandra write completes.
 
-`@Async` requires the annotated method to be on a different bean — calling an `@Async` method on `this` bypasses the Spring AOP proxy and runs synchronously. `CassandraAsyncWriter` is a dedicated `@Service` for this reason; `PerformerService` injects it via constructor and delegates to it.
+`@Async` requires the annotated method to be on a different bean — calling an `@Async` method on `this` bypasses the Spring AOP proxy and runs synchronously. `CassandraAsyncWriter` is a dedicated `@Service` for this reason; both `PerformerService` and `EventService` inject it via constructor and delegate to it.
 
 `AsyncConfig` registers a named `ThreadPoolTaskExecutor` bean (`cassandraExecutor`): core pool 2, max 5, queue capacity 100, thread prefix `cassandra-async-`. The named executor is referenced in `@Async("cassandraExecutor")` so Cassandra writes don't contend with any other async work.
 
@@ -203,7 +203,7 @@ All service methods are explicitly annotated — no implicit transaction boundar
 - Write methods use `@Transactional` — rolls back on any unchecked exception
 - `AuthService.login` is `@Transactional(readOnly = true)`: it makes two DB reads (one via `authenticationManager.authenticate` → `UserDetailsServiceImpl`, one direct `userRepository.findByUsername`) and wrapping them ensures a single connection
 
-Cassandra writes in `PerformerService` happen after the JPA call and are outside the Postgres transaction boundary. A Cassandra failure after Postgres commits is not rolled back — accepted limitation of dual-store without a distributed transaction coordinator.
+Cassandra writes in `PerformerService` and `EventService` happen after the JPA call and are outside the Postgres transaction boundary. A Cassandra failure after Postgres commits is not rolled back — accepted limitation of dual-store without a distributed transaction coordinator.
 
 ### Logging
 `PerformerService` uses `@Slf4j` (Lombok) with structured parameterized log statements. Log level conventions:
@@ -254,17 +254,23 @@ Probes use the dedicated Spring Boot Kubernetes endpoints:
 
 Update the `image:` field to your registry path before applying.
 
-### Cassandra dual-write (performers)
-`PerformerService` writes to Postgres first (synchronous, within the JPA transaction), then fires an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
+### Cassandra dual-write (events and performers)
+Both `EventService` and `PerformerService` write to Postgres first (synchronous, within the JPA transaction), then fire an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
-- Entity: `cassandra/model/CassandraPerformer.java` — `@Table("performers")` with `id` as partition key
+**Performers**
+- Entity: `cassandra/model/CassandraPerformer.java` — `@Table("performers")` with `id` as partition key; fields: `name`, `genre`, `bio`
 - Repository: `cassandra/repository/PerformerCassandraRepository.java` — `CassandraRepository<CassandraPerformer, Long>`
-- `CassandraAsyncWriter` — `@Service` with `@Async("cassandraExecutor")` methods; holds `@Autowired(required = false) PerformerCassandraRepository`; skips the write (null check) when the bean is absent (test profile)
-- `PerformerService` injects `CassandraAsyncWriter` via constructor; calls `savePerformer()` / `deletePerformer()` fire-and-forget after the Postgres operation completes
-- `spring.cassandra.schema-action: create_if_not_exists` auto-creates the `performers` table
-- The `event_manager` keyspace is created by the `cassandra-init` container in docker-compose on first `docker compose up -d`
+- `PerformerService` calls `cassandraAsyncWriter.savePerformer()` / `deletePerformer()` after the Postgres write
 
-The `cassandra-init` container runs `cqlsh` against the `cassandra` service after it passes its healthcheck, then exits. Cassandra takes ~60 s to start; the healthcheck has `start_period: 60s`.
+**Events**
+- Entity: `cassandra/model/CassandraEvent.java` — `@Table("events")` with `id` as partition key; fields: `name`, `description`, `eventDate`, `ticketPrice`, `venueId`, `createdAt`, `updatedAt`. The `ManyToMany` performers relationship is not stored — it maps poorly to a Cassandra column and `CassandraPerformer` does not store event IDs either.
+- Repository: `cassandra/repository/EventCassandraRepository.java` — `CassandraRepository<CassandraEvent, Long>`
+- `EventService` calls `cassandraAsyncWriter.saveEvent()` / `deleteEvent()` after the Postgres write; `toCassandraEntity(EventResponse)` maps the response DTO to `CassandraEvent`, deriving `venueId` from `response.getVenue().getId()`
+
+**`CassandraAsyncWriter`**
+Holds both repositories with `@Autowired(required = false)` field injection. Each method null-checks its repository before writing, so the bean operates safely when Cassandra is excluded (test profile). Methods: `savePerformer`, `deletePerformer`, `saveEvent`, `deleteEvent` — all `@Async("cassandraExecutor")`.
+
+`spring.cassandra.schema-action: create_if_not_exists` auto-creates both tables on startup. The `event_manager` keyspace is created by the `cassandra-init` container in docker-compose on first `docker compose up -d`. Cassandra takes ~60 s to start; the healthcheck has `start_period: 60s`.
 
 `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` prevents Spring Data JPA from scanning the `cassandra.repository` package, avoiding multi-store conflicts.
 
