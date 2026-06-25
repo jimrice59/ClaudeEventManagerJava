@@ -58,7 +58,7 @@ The Dockerfile is a two-stage build:
 
 `.dockerignore` excludes `target/`, `.git/`, `.claude/`, `*.md`, and `dump.rdb`.
 
-All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_SECRET`, `JWT_EXPIRATION_MS`.
+All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `OAUTH2_ISSUER`.
 
 `docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` from both `app:8080` (docker-compose mode) and `host.docker.internal:8080` (local `mvn spring-boot:run` mode) — unreachable targets show as DOWN without affecting the other. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
 
@@ -76,23 +76,46 @@ Traefik dashboard: `http://localhost:9000` (only when running with the `traefik`
 ### Request flow
 ```
 HTTP Request
-  → JwtAuthenticationFilter (extracts/validates Bearer token, sets SecurityContext)
-  → SecurityFilterChain (enforces authorization rules)
-  → Controller (validates input with @Valid)
-  → Service (business logic, Redis cache annotations)
-  → Repository (JPA / PostgreSQL)
-       ↓ (event and performer writes, fire-and-forget)
-  → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository)
-       ↓ (performer video add/delete, fire-and-forget with retry)
-  → PerformerVideoEventPublisher (@Async → kafkaExecutor thread pool → KafkaTemplate → performer-video-events topic)
+  → Filter chain @Order(1): OAuth2AuthorizationServerConfigurer
+  │    matches /oauth2/**, /.well-known/** only
+  │    (all other requests fall through to @Order(2) or @Order(3))
+  │
+  → Filter chain @Order(2): form login
+  │    matches /login only — used by authorization_code flow
+  │
+  → Filter chain @Order(3): API (stateless)
+       → JwtAuthenticationFilter (tries custom HS256 JWT first)
+       → BearerTokenAuthenticationFilter (tries OAuth2 RS256 JWT if context not set)
+       → SecurityFilterChain authorization rules
+       → Controller (validates input with @Valid)
+       → Service (business logic, Redis cache annotations)
+       → Repository (JPA / PostgreSQL)
+            ↓ (event and performer writes, fire-and-forget)
+       → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository)
+            ↓ (performer video add/delete, fire-and-forget with retry)
+       → PerformerVideoEventPublisher (@Async → kafkaExecutor thread pool → KafkaTemplate → performer-video-events topic)
 ```
 
 ### API endpoints
 
+**OAuth2 / OIDC endpoints** (handled by `@Order(1)` Authorization Server filter chain):
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/.well-known/openid-configuration` | OIDC discovery document |
+| GET | `/.well-known/oauth-authorization-server` | OAuth2 server metadata |
+| GET | `/oauth2/jwks` | Public key set (JWK Set) for token verification |
+| POST | `/oauth2/token` | Issue access/refresh tokens (`client_credentials`, `authorization_code`, `refresh_token`) |
+| GET | `/oauth2/authorize` | Start authorization_code flow (redirects to `/login`) |
+| POST | `/oauth2/revoke` | Revoke a token |
+| POST | `/oauth2/introspect` | Introspect a token |
+
+**Application endpoints** (handled by `@Order(3)` API filter chain):
+
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | public | returns JWT |
-| POST | `/api/auth/login` | public | returns JWT |
+| POST | `/api/auth/register` | public | returns custom JWT |
+| POST | `/api/auth/login` | public | returns custom JWT |
 | GET | `/api/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
 | GET | `/api/events/{id}` | public | cached |
 | POST | `/api/events` | authenticated | Cassandra dual-write |
@@ -114,14 +137,14 @@ HTTP Request
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
 ### Authorization model
-Defined in `SecurityConfig.securityFilterChain`:
+Defined in `SecurityConfig.securityFilterChain` (`@Order(3)`):
 - Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
 - Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**` (includes ticket reserve/release sub-routes)
 - Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**` (includes video sub-routes), `DELETE /api/events/**`, `/api/admin/**`
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
-Unauthenticated requests to protected endpoints return **403** (not 401) — no `AuthenticationEntryPoint` is configured, so Spring Security's default `Http403ForbiddenEntryPoint` applies.
+Unauthenticated requests to protected endpoints return **401** — `oauth2ResourceServer` installs a `BearerTokenAuthenticationEntryPoint`. Authenticated-but-insufficient-role requests return **403** (from `GlobalExceptionHandler.handleAccessDeniedException`).
 
 ### Exception handling
 `GlobalExceptionHandler` (`@RestControllerAdvice`) maps exceptions to HTTP responses:
@@ -156,8 +179,27 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 - `Performer` ↔ `Video`: `@ManyToMany` via join table `performer_videos` (`performer_id`, `video_id`); `Performer` is the owning side. `Video` rows are deduplicated by URL — `addVideo` reuses an existing `Video` if the URL already exists. Removing a video from a performer does not delete the `Video` row (other performers may reference it).
 - All associations are `FETCH_TYPE.LAZY`; `EventRepository` uses JPQL `JOIN FETCH` queries (`findByIdWithDetails`, `findAllWithDetails`) and `PerformerRepository` uses `LEFT JOIN FETCH` queries (`findAllWithVideos`, `findByIdWithVideos`, etc.) to load associations in a single query and avoid N+1. `LEFT JOIN FETCH` is used for performers so that performers without any videos are still returned.
 
-### JWT flow
-`JwtTokenProvider` reads `jwt.secret` (BASE64-encoded) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` extracts the token, validates it, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`.
+### Authentication flows
+
+**Custom JWT** (`POST /api/auth/login` → `Authorization: Bearer <token>`)
+`JwtTokenProvider` reads `jwt.secret` (BASE64-encoded, HMAC-SHA) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` runs before `BearerTokenAuthenticationFilter`: it validates the HMAC signature, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`. `validateToken` catches all JJWT exceptions including `JwtException` (catch-all for algorithm mismatches when an RS256 OAuth2 token arrives) — returning false allows `BearerTokenAuthenticationFilter` to try next.
+
+**OAuth2 `client_credentials`** (M2M — no user login):
+```bash
+curl -X POST http://localhost:8080/oauth2/token \
+  -u event-manager-client:secret \
+  -d "grant_type=client_credentials&scope=read write"
+```
+Returns an RS256-signed JWT with a `scope` claim (`SCOPE_read`, `SCOPE_write`). Custom JWT filter returns false (wrong algorithm) → `BearerTokenAuthenticationFilter` validates it and produces a `JwtAuthenticationToken` with `SCOPE_*` authorities.
+
+**OAuth2 `authorization_code`** (user-delegated):
+1. `GET /oauth2/authorize?response_type=code&client_id=event-manager-client&scope=openid+read+write&redirect_uri=http://localhost:8080/authorized`
+2. AS redirects browser to `/login` → user logs in with username/password via form
+3. AS issues auth code, redirects to `redirect_uri?code=...`
+4. `POST /oauth2/token` with `grant_type=authorization_code&code=...`
+5. Returns RS256 JWT with both `scope` and `roles` claims (e.g. `["ROLE_ADMIN"]`). `JwtAuthenticationConverter` maps `roles` → `ROLE_*` authorities, so `@PreAuthorize("hasRole('ADMIN')")` works.
+
+Registered client: `clientId=event-manager-client`, `clientSecret=secret` (BCrypt-encoded). Secret rotates on restart unless externalized.
 
 ### DTO separation
 Controllers accept/return DTOs, never entities. `EventRequest` carries `venueId` and `Set<Long> performerIds` for write operations. `EventResponse` carries embedded `VenueDto` and `Set<PerformerDto>` for reads. `TicketRequest` carries a single `count` field (`@NotNull @Min(1)`) used by the reserve/release endpoints. `VideoRequest` carries a single `url` field (`@NotBlank @URL`) used by the performer video endpoints. `PerformerDto` includes `Set<String> videoUrls` as output (populated from the join); video management is done through dedicated endpoints, not through the create/update payload. Mapping is done in service `toResponse()` / `toDto()` methods, not via a separate mapper library.
@@ -186,7 +228,7 @@ Every service, controller, and security class declares dependencies as `private 
 `CassandraAsyncWriter` holds two optional repositories (`PerformerCassandraRepository`, `EventCassandraRepository`), both field-injected with `required = false`. `PerformerVideoEventPublisher` holds an optional `KafkaTemplate<String, VideoEvent>`, also field-injected with `required = false`. Spring skips injection when the beans are absent (test profile excludes Cassandra and Kafka autoconfiguration). Each method short-circuits with a null check. Constructor injection cannot express optionality without an `Optional<>` wrapper.
 
 **`@Bean` factory methods in `@Configuration` classes — explicit bean registration**
-`SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager.
+`SecurityConfig` registers `PasswordEncoder`, `DaoAuthenticationProvider`, `AuthenticationManager`, and `CorsConfigurationSource` manually because they require configuration logic Spring cannot infer. `RedisConfig` registers a custom `RedisCacheManager` with JSON serialization and a 1-hour TTL, overriding Spring's default Java-serialization cache manager. `AuthorizationServerConfig` registers `RegisteredClientRepository`, `JWKSource`, `JwtDecoder`, `AuthorizationServerSettings`, and `OAuth2TokenCustomizer` — all of these have `@ConditionalOnMissingBean` in the Spring Boot auto-configuration so providing them explicitly prevents any auto-config from firing.
 
 Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are registered automatically by the `spring-boot-starter-data-jpa` infrastructure — no annotation is needed on them beyond `extends JpaRepository`. `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` scopes this scan to exclude the Cassandra repository package.
 
@@ -270,6 +312,30 @@ Probes use the dedicated Spring Boot Kubernetes endpoints:
 
 Update the `image:` field to your registry path before applying.
 
+### OAuth 2.0 Authorization Server + Resource Server
+`spring-boot-starter-oauth2-authorization-server` is on the classpath. The app acts as both an OAuth2 Authorization Server (issues RS256 JWTs) and a Resource Server (validates them). No external auth server is needed.
+
+**Three security filter chains** (order matters — first match wins):
+
+| Order | Class | `securityMatcher` | Purpose |
+|---|---|---|---|
+| 1 | `AuthorizationServerConfig.authorizationServerSecurityFilterChain` | AS endpoints (`/oauth2/**`, `/.well-known/**`) | Issues and manages tokens; redirects browsers to `/login` |
+| 2 | `AuthorizationServerConfig.formLoginSecurityFilterChain` | `/login` | Provides form login page for `authorization_code` user authentication |
+| 3 | `SecurityConfig.securityFilterChain` | everything else | Stateless API: custom JWT → OAuth2 Bearer → authorization rules |
+
+**`AuthorizationServerConfig`** — all AS beans live here:
+- `JWKSource<SecurityContext>`: RSA 2048-bit key pair generated at startup. Used to sign tokens and exposed at `/oauth2/jwks`. Rotates on every restart — externalize to a persistent key store for production.
+- `JwtDecoder`: wraps the JWK source; used by both the AS internally and the `@Order(3)` Resource Server chain to validate tokens.
+- `AuthorizationServerSettings`: issuer = `${OAUTH2_ISSUER:http://localhost:8080}`. Sets the `iss` claim in all tokens and the `issuer` field in the OIDC discovery document.
+- `RegisteredClientRepository` (in-memory): one client — `event-manager-client` / `secret` (BCrypt), grants `client_credentials` + `authorization_code` + `refresh_token`, scopes `openid read write`, redirect URI `http://localhost:8080/authorized`.
+- `OAuth2TokenCustomizer<JwtEncodingContext>`: for `authorization_code` access tokens only, loads the authenticated user's `GrantedAuthority` list and adds it as a `roles` claim (e.g. `["ROLE_ADMIN"]`). `client_credentials` tokens carry only `scope` claims (no user principal exists).
+
+**Resource Server side** (`SecurityConfig.securityFilterChain`):
+- `addFilterBefore(jwtAuthenticationFilter, BearerTokenAuthenticationFilter.class)`: custom JWT filter runs first. If it succeeds (HMAC validates, UserDetails loaded), SecurityContext is set and `BearerTokenAuthenticationFilter` skips. If the token is RS256 (OAuth2), `validateToken` returns false (JJWT's `JwtException` catch-all handles algorithm mismatches) and `BearerTokenAuthenticationFilter` takes over.
+- `JwtAuthenticationConverter`: maps `scope` claim → `SCOPE_*` authorities (for `client_credentials` tokens) and `roles` claim → `ROLE_*` authorities (for `authorization_code` tokens), so `@PreAuthorize("hasRole('ADMIN')")` works for both token types.
+
+**OIDC discovery:** `GET /.well-known/openid-configuration` — returns issuer, authorization endpoint, token endpoint, JWKS URI, supported grant types, scopes, and signing algorithms. Useful for configuring external clients.
+
 ### Kafka messaging (performer video events)
 `spring-kafka` + `spring-retry` are on the classpath. Kafka is optional — `KafkaTemplate` is `@Autowired(required = false)` and `KafkaAutoConfiguration` is excluded in the test profile, so the app starts and tests pass without a broker.
 
@@ -337,10 +403,10 @@ Holds both repositories with `@Autowired(required = false)` field injection. Eac
 
 **`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter`, `VideoRepository`, and `PerformerVideoEventPublisher` directly via constructor — no `ReflectionTestUtils` needed. Constructor: `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher)`. The "absent Cassandra/Kafka" scenarios are handled by null-check guards in `CassandraAsyncWriter` and `PerformerVideoEventPublisher` and are not tested at the service level. Repository stubs use the new video-aware method names (`findAllWithVideos`, `findByIdWithVideos`, etc.).
 
-**`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, 403 for unauthenticated requests, 404 with error body.
+**`PerformerControllerTest`** covers: happy-path responses, query param routing (`?name=`, `?genre=`), 400 on validation failure, 403 for `ROLE_USER` on admin endpoints, **401** for unauthenticated requests (changed from 403 when `oauth2ResourceServer` installed `BearerTokenAuthenticationEntryPoint`), 404 with error body.
 
 **`@WebMvcTest` caveat:** `@EnableJpaRepositories` on `EventManagerApplication` causes `@WebMvcTest` slices to fail (JPA is forced into the context but `entityManagerFactory` isn't auto-configured by the slice). Controller tests use `@SpringBootTest + @AutoConfigureMockMvc + @ActiveProfiles("test")` instead.
 
 **Async Cassandra/Kafka in service tests:** `@Async` is an AOP proxy feature — in a plain Mockito test with no Spring context, `CassandraAsyncWriter` and `PerformerVideoEventPublisher` methods run synchronously. This is fine: tests verify that the collaborators are called, not that they ran on a background thread. All four dependencies are constructor-injected into `PerformerService`, so `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher)` with Mockito mocks is all that is needed — no `ReflectionTestUtils`.
 
-**`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return 403 (not 401) because no `AuthenticationEntryPoint` is configured in `SecurityConfig`.
+**`AccessDeniedException` handling:** `GlobalExceptionHandler` has an explicit `@ExceptionHandler(AccessDeniedException.class)` returning 403. Without it, the catch-all `Exception` handler intercepts `@PreAuthorize` rejections and returns 500 instead of 403. Unauthenticated requests return **401** (not 403) because `oauth2ResourceServer` registers a `BearerTokenAuthenticationEntryPoint`; prior to adding OAuth2 support, no entry point was configured and Spring Security's default `Http403ForbiddenEntryPoint` applied.
