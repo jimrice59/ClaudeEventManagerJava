@@ -154,13 +154,13 @@ class PerformerControllerTest {
     }
 
     @Test
-    void createPerformer_returns403WhenUnauthenticated() throws Exception {
+    void createPerformer_returns401WhenUnauthenticated() throws Exception {
         PerformerDto input = PerformerDto.builder().name("The Beatles").genre("Rock").build();
 
         mockMvc.perform(post("/api/performers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(input)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(performerService, never()).createPerformer(any());
     }
@@ -239,9 +239,9 @@ class PerformerControllerTest {
     }
 
     @Test
-    void deletePerformer_returns403WhenUnauthenticated() throws Exception {
+    void deletePerformer_returns401WhenUnauthenticated() throws Exception {
         mockMvc.perform(delete("/api/performers/1"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         verify(performerService, never()).deletePerformer(any());
     }
