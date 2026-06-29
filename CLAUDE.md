@@ -233,17 +233,19 @@ Every service, controller, and security class declares dependencies as `private 
 Spring Data JPA repositories (`EventRepository`, `VenueRepository`, etc.) are registered automatically by the `spring-boot-starter-data-jpa` infrastructure — no annotation is needed on them beyond `extends JpaRepository`. `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` scopes this scan to exclude the Cassandra repository package.
 
 ### I/O model
-**Postgres** calls are synchronous and blocking. Spring Data JPA uses JDBC — every `findById`, `save`, and `deleteById` holds the request thread until Postgres responds. The app is servlet-based (`spring-boot-starter-web`, Tomcat thread pool), so each request occupies one thread for its full duration.
+**Postgres** calls are synchronous and blocking. Spring Data JPA uses JDBC — every `findById`, `save`, and `deleteById` holds the request thread until Postgres responds. The app is servlet-based (`spring-boot-starter-web`, Tomcat), so each request occupies one thread for its full duration. Concurrency is handled via **virtual threads** (see below) rather than a reactive stack.
 
-**Cassandra** writes are asynchronous via Spring's `@Async` mechanism. After the Postgres write commits, both `PerformerService` and `EventService` call the appropriate `CassandraAsyncWriter` method (`savePerformer`/`deletePerformer` or `saveEvent`/`deleteEvent`), which returns immediately — the actual Cassandra I/O runs on the `cassandraExecutor` thread pool (configured in `AsyncConfig`). The HTTP response is returned before the Cassandra write completes.
+**Virtual threads** (`spring.threads.virtual.enabled: true` in `application.yml`) configure Tomcat to dispatch every inbound request on a Java 21 virtual thread instead of a platform thread. When a virtual thread blocks on JDBC, the underlying carrier thread is unmounted by the JVM and picks up other work — effectively giving unlimited concurrent requests without the memory and scheduling cost of thousands of platform threads. No code changes are required: all existing synchronous JDBC/JPA calls benefit automatically. This is the correct approach for a servlet-based app with blocking I/O; making service methods `@Async` with `CompletableFuture` would add a thread-hop without benefit since the request still has to wait for the result. True non-blocking Postgres would require a reactive stack (R2DBC + WebFlux), which is a significant architectural rewrite.
+
+**Cassandra** writes are asynchronous via Spring's `@Async` mechanism. After the Postgres write commits, both `PerformerService` and `EventService` call the appropriate `CassandraAsyncWriter` method (`savePerformer`/`deletePerformer` or `saveEvent`/`deleteEvent`), which returns immediately — the actual Cassandra I/O runs on the `cassandraExecutor` virtual-thread executor (configured in `AsyncConfig`). The HTTP response is returned before the Cassandra write completes.
 
 `@Async` requires the annotated method to be on a different bean — calling an `@Async` method on `this` bypasses the Spring AOP proxy and runs synchronously. `CassandraAsyncWriter` is a dedicated `@Service` for this reason; both `PerformerService` and `EventService` inject it via constructor and delegate to it.
 
-`AsyncConfig` registers two named `ThreadPoolTaskExecutor` beans:
-- `cassandraExecutor`: core pool 2, max 5, queue 100, thread prefix `cassandra-async-` — used by `CassandraAsyncWriter`
-- `kafkaExecutor`: core pool 2, max 5, queue 100, thread prefix `kafka-async-` — used by `PerformerVideoEventPublisher`
+`AsyncConfig` registers two named executor beans backed by `Executors.newVirtualThreadPerTaskExecutor()`:
+- `cassandraExecutor` — used by `CassandraAsyncWriter`; each async Cassandra task gets its own virtual thread
+- `kafkaExecutor` — used by `PerformerVideoEventPublisher`; each async Kafka publish gets its own virtual thread
 
-Keeping them separate prevents Cassandra and Kafka I/O from competing for threads.
+Using virtual-thread executors instead of fixed `ThreadPoolTaskExecutor` pools removes the artificial cap on concurrent async tasks (previously core 2, max 5, queue 100 per executor). Keeping the two executors separate ensures Cassandra and Kafka I/O never compete for the same threads.
 
 Cassandra write failures are caught inside `CassandraAsyncWriter` and logged as `ERROR` — there is no caller to propagate them to once the method returns asynchronously.
 
