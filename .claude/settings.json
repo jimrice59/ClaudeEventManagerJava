@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd /Users/jimrice1959/Documents/workspace/tech-prep/claude/ClaudeEventManager_Java_1 && if ! git diff --quiet || ! git diff --staged --quiet; then SUMMARY=$(git diff --name-only; git diff --staged --name-only | sort -u | head -3 | paste -sd ', '); git add -A && git commit -m \"Auto-commit: $SUMMARY\" && git push origin main; fi 2>/dev/null || true",
+            "command": "cd /Users/jimrice1959/Documents/workspace/tech-prep/claude/ClaudeEventManager_Java_1 && if [ -n \"$(git status --porcelain)\" ]; then git add -A && FILES=$(git diff --staged --name-only | sort -u) && COUNT=$(echo \"$FILES\" | wc -l | tr -d ' ') && SHORT=$(echo \"$FILES\" | head -3 | xargs basename -a 2>/dev/null | paste -sd ', ') && MSG=$(if [ \"$COUNT\" -gt 3 ]; then echo \"Update $COUNT files: $SHORT, ...\"; else echo \"Update: $SHORT\"; fi) && git commit -m \"$MSG\" && git push origin main; fi 2>/dev/null || true",
             "statusMessage": "Committing and pushing changes..."
           }
         ]
