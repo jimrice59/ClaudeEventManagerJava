@@ -498,6 +498,65 @@ Holds both repositories with `@Autowired(required = false)` field injection. Eac
 
 `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` prevents Spring Data JPA from scanning the `cassandra.repository` package, avoiding multi-store conflicts.
 
+### EventManagerClient
+
+`com.eventmanager.client.EventManagerClient` is a `RestTemplate`-based client that covers every API endpoint. It is intended for use by other Spring applications that need to call this service programmatically.
+
+**Construction:**
+
+```java
+// Default RestTemplate
+EventManagerClient client = new EventManagerClient("http://localhost:8080");
+
+// Inject a pre-configured RestTemplate (custom timeouts, interceptors, etc.)
+EventManagerClient client = new EventManagerClient("http://localhost:8080", restTemplate);
+```
+
+**Authentication:** Call `login()` once — the returned JWT is stored internally and added as a `Bearer` token to all subsequent authenticated requests. Alternatively, call `setToken()` to inject an externally obtained token (e.g. an OAuth2 `client_credentials` token).
+
+```java
+client.login("admin", "password");   // stores JWT automatically
+// or
+client.setToken(oauthAccessToken);   // inject any bearer token
+```
+
+Public `GET` endpoints (read operations on events, venues, performers) send no `Authorization` header and work without calling `login()` first.
+
+**Error handling:** 4xx responses throw `HttpClientErrorException`; 5xx responses throw `HttpServerErrorException`. Both carry the HTTP status and response body.
+
+**Method reference:**
+
+| Method | HTTP | Endpoint | Auth |
+|---|---|---|---|
+| `register(RegisterRequest)` | POST | `/api/auth/register` | public |
+| `login(username, password)` | POST | `/api/auth/login` | public |
+| `getEvents()` | GET | `/api/events` | public |
+| `getEventsByVenue(venueId)` | GET | `/api/events?venueId=` | public |
+| `getEventsBetween(start, end)` | GET | `/api/events?start=&end=` | public |
+| `getEvent(id)` | GET | `/api/events/{id}` | public |
+| `createEvent(EventRequest)` | POST | `/api/events` | authenticated |
+| `updateEvent(id, EventRequest)` | PUT | `/api/events/{id}` | authenticated |
+| `reserveTickets(id, count)` | POST | `/api/events/{id}/tickets/reserve` | authenticated |
+| `releaseTickets(id, count)` | POST | `/api/events/{id}/tickets/release` | authenticated |
+| `deleteEvent(id)` | DELETE | `/api/events/{id}` | ADMIN |
+| `getVenues()` | GET | `/api/venues` | public |
+| `getVenuesByCity(city)` | GET | `/api/venues?city=` | public |
+| `getVenue(id)` | GET | `/api/venues/{id}` | public |
+| `createVenue(VenueDto)` | POST | `/api/venues` | ADMIN |
+| `updateVenue(id, VenueDto)` | PUT | `/api/venues/{id}` | ADMIN |
+| `deleteVenue(id)` | DELETE | `/api/venues/{id}` | ADMIN |
+| `getPerformers()` | GET | `/api/performers` | public |
+| `searchPerformersByName(name)` | GET | `/api/performers?name=` | public |
+| `getPerformersByGenre(genre)` | GET | `/api/performers?genre=` | public |
+| `getPerformer(id)` | GET | `/api/performers/{id}` | public |
+| `createPerformer(PerformerDto)` | POST | `/api/performers` | ADMIN |
+| `updatePerformer(id, PerformerDto)` | PUT | `/api/performers/{id}` | ADMIN |
+| `addVideo(performerId, url)` | POST | `/api/performers/{id}/videos` | ADMIN |
+| `deleteVideo(performerId, url)` | DELETE | `/api/performers/{id}/videos` | ADMIN |
+| `deletePerformer(id)` | DELETE | `/api/performers/{id}` | ADMIN |
+
+List responses use `ParameterizedTypeReference` to preserve generic type information at runtime. `deleteEvent`, `deleteVenue`, and `deletePerformer` return `void` — a 204/200 with no body is a success.
+
 ### Test profile
 `src/main/resources/application-test.yml` (activated by `@ActiveProfiles("test")`) swaps Postgres for H2 in-memory, sets `spring.cache.type: none` so Redis is not required, and excludes `CassandraAutoConfiguration`, `CassandraRepositoriesAutoConfiguration`, and `KafkaAutoConfiguration` so neither Cassandra nor Kafka is required during tests.
 
