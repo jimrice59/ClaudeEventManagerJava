@@ -97,6 +97,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   app:
+    build: .
     image: event-manager:latest
     container_name: eventmanager-app
     ports:
