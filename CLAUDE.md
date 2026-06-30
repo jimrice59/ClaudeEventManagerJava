@@ -144,8 +144,27 @@ HTTP Request
 | DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
+### Disabling authentication for development
+
+`DevSecurityConfig` (`com.eventmanager.config`, `@Profile("dev")`) defines a single `@Order(0)` filter chain that matches `/**` and calls `permitAll()` with CSRF disabled. Because `@Order(0)` is lower than all production chains (orders 1–4), it intercepts every request before any auth logic runs. The production `SecurityConfig` and `AuthorizationServerConfig` beans still load — they just never see any traffic.
+
+Activate with any of:
+
+```bash
+# Maven
+JAVA_HOME=... $MVN spring-boot:run -Dspring-boot.run.profiles=dev
+
+# Packaged jar
+java -Dspring.profiles.active=dev -jar target/event-manager-1.0.0.jar
+
+# Environment variable (shell or docker compose)
+SPRING_PROFILES_ACTIVE=dev
+```
+
+`application-dev.yml` is also loaded when the profile is active. It enables SQL logging (`spring.jpa.show-sql: true`) and sets `DEBUG` level for `com.eventmanager` and `org.springframework.security`. To re-enable authentication, remove the profile flag — no code changes needed.
+
 ### Authorization model
-Defined in `SecurityConfig.securityFilterChain` (`@Order(3)`):
+Defined in `SecurityConfig.securityFilterChain` (`@Order(4)`; bypassed when the `dev` profile is active):
 - Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
 - Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**` (includes ticket reserve/release sub-routes)
 - Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**` (includes video sub-routes), `DELETE /api/events/**`, `/api/admin/**`
