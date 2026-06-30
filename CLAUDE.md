@@ -78,12 +78,20 @@ Traefik dashboard: `http://localhost:9000` (only when running with the `traefik`
 HTTP Request
   → Filter chain @Order(1): OAuth2AuthorizationServerConfigurer
   │    matches /oauth2/**, /.well-known/** only
-  │    (all other requests fall through to @Order(2) or @Order(3))
+  │    (all other requests fall through to @Order(2) or higher)
   │
   → Filter chain @Order(2): form login
   │    matches /login only — used by authorization_code flow
   │
-  → Filter chain @Order(3): API (stateless)
+  → Filter chain @Order(3): Web UI (session-based)
+  │    matches /ui/** only
+  │    → Spring Security form login (/ui/login)
+  │    → Session + CSRF enabled
+  │    → WebEventController / WebVenueController / WebPerformerController / WebAuthController
+  │    → Same services as REST API
+  │    → Thymeleaf template → HTML response
+  │
+  → Filter chain @Order(4): API (stateless)
        → JwtAuthenticationFilter (tries custom HS256 JWT first)
        → BearerTokenAuthenticationFilter (tries OAuth2 RS256 JWT if context not set)
        → SecurityFilterChain authorization rules
@@ -145,6 +153,84 @@ Defined in `SecurityConfig.securityFilterChain` (`@Order(3)`):
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
 Unauthenticated requests to protected endpoints return **401** — `oauth2ResourceServer` installs a `BearerTokenAuthenticationEntryPoint`. Authenticated-but-insufficient-role requests return **403** (from `GlobalExceptionHandler.handleAccessDeniedException`).
+
+### Thymeleaf web UI
+
+`spring-boot-starter-thymeleaf` and `thymeleaf-extras-springsecurity6` are on the classpath. All UI pages are served under `/ui/**` by a dedicated set of `@Controller` classes in `com.eventmanager.web`. The REST API under `/api/**` is entirely unchanged.
+
+**Authentication for the web UI** is session-based and completely separate from the JWT-based REST API. When a user POSTs to `POST /ui/login`, Spring Security validates credentials against the same `UserDetailsServiceImpl` / user table, creates an `HttpSession`, and redirects to `/ui/events`. The session cookie is used for all subsequent `/ui/**` requests. CSRF protection is enabled on the web filter chain (Spring Security default); Thymeleaf injects the CSRF token automatically into all `th:action` forms.
+
+**Web security filter chain** (`SecurityConfig.webFilterChain`, `@Order(3)`, `securityMatcher("/ui/**")`):
+- `GET /ui/login` — public (login page)
+- `GET /ui/events`, `GET /ui/events/{id}` — public (read-only event browsing)
+- `GET /ui/venues`, `GET /ui/venues/{id}` — public
+- `GET /ui/performers`, `GET /ui/performers/{id}` — public
+- All other `/ui/**` — requires authentication; individual write/delete methods also use `@PreAuthorize` for role checks
+
+**Web controllers** (`com.eventmanager.web`):
+
+| Controller | Base path | Notes |
+|---|---|---|
+| `WebAuthController` | `/ui/login`, `/ui` | Login page GET; `GET /ui` redirects to `/ui/events` |
+| `WebEventController` | `/ui/events` | Full CRUD; `@InitBinder` handles `datetime-local` input format |
+| `WebVenueController` | `/ui/venues` | Full CRUD; city filter on list |
+| `WebPerformerController` | `/ui/performers` | Full CRUD + video add/remove; name/genre filter on list |
+
+All web controllers delegate directly to the existing services (`EventService`, `VenueService`, `PerformerService`) — no duplicate business logic. Flash attributes (`RedirectAttributes.addFlashAttribute`) carry success messages across the POST-redirect-GET cycle.
+
+**`datetime-local` binding** — HTML `<input type="datetime-local">` produces values in the format `yyyy-MM-dd'T'HH:mm` (no seconds). Spring MVC's default `LocalDateTime` converter expects full ISO-8601. `WebEventController` registers a `PropertyEditorSupport` via `@InitBinder` that parses and formats `LocalDateTime` using `DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")`, avoiding any change to `EventRequest` or application.yml.
+
+**Delete pattern** — HTML forms only support GET and POST. Delete actions use `POST /ui/{entity}/{id}/delete` with a JavaScript `confirm()` dialog on the submit button. No `HiddenHttpMethodFilter` is needed.
+
+**Thymeleaf templates** (`src/main/resources/templates/`):
+
+| File | Purpose |
+|---|---|
+| `login.html` | Standalone login card; no nav |
+| `fragments/nav.html` | `th:fragment="nav"` — Bootstrap 5 navbar included in every page via `th:replace`; uses `sec:authorize` to show/hide Login vs. username + Logout |
+| `events/list.html` | Card grid of all events; Create button visible to authenticated users |
+| `events/view.html` | Event detail: venue link, performer badges, ticket counts |
+| `events/form.html` | Create/edit form; venue select dropdown, performer checkboxes; reused for both create (`POST /ui/events`) and edit (`POST /ui/events/{id}/edit`) via conditional `th:action` |
+| `venues/list.html` | Table with city filter form |
+| `venues/view.html` | Venue detail |
+| `venues/form.html` | Create/edit form |
+| `performers/list.html` | Card grid with name/genre search |
+| `performers/view.html` | Performer detail; admin panel for adding/removing video URLs inline |
+| `performers/form.html` | Create/edit form (name, genre, bio only — videos managed on the view page) |
+
+**`sec:authorize` in templates** — `thymeleaf-extras-springsecurity6` provides the `sec:` namespace. Admin-only buttons (Create venue, Edit/Delete venue, Edit/Delete performer, video management panel) are wrapped in `sec:authorize="hasRole('ADMIN')"` so they are not rendered for non-admin users. The server-side `@PreAuthorize` annotation on each controller method enforces the same rules independently.
+
+**URL summary:**
+
+| Method | Path | Auth | Action |
+|---|---|---|---|
+| GET | `/ui` | public | Redirect to `/ui/events` |
+| GET | `/ui/login` | public | Login page |
+| POST | `/ui/login` | public | Spring Security processes credentials |
+| POST | `/ui/logout` | authenticated | Invalidates session |
+| GET | `/ui/events` | public | List all events |
+| GET | `/ui/events/{id}` | public | View event |
+| GET | `/ui/events/new` | authenticated | New event form |
+| POST | `/ui/events` | authenticated | Create event |
+| GET | `/ui/events/{id}/edit` | authenticated | Edit form pre-filled from existing event |
+| POST | `/ui/events/{id}/edit` | authenticated | Update event |
+| POST | `/ui/events/{id}/delete` | ADMIN | Delete event |
+| GET | `/ui/venues` | public | List venues (optional `?city=`) |
+| GET | `/ui/venues/{id}` | public | View venue |
+| GET | `/ui/venues/new` | ADMIN | New venue form |
+| POST | `/ui/venues` | ADMIN | Create venue |
+| GET | `/ui/venues/{id}/edit` | ADMIN | Edit form |
+| POST | `/ui/venues/{id}/edit` | ADMIN | Update venue |
+| POST | `/ui/venues/{id}/delete` | ADMIN | Delete venue |
+| GET | `/ui/performers` | public | List performers (optional `?name=` or `?genre=`) |
+| GET | `/ui/performers/{id}` | public | View performer; admin video panel |
+| GET | `/ui/performers/new` | ADMIN | New performer form |
+| POST | `/ui/performers` | ADMIN | Create performer |
+| GET | `/ui/performers/{id}/edit` | ADMIN | Edit form |
+| POST | `/ui/performers/{id}/edit` | ADMIN | Update performer |
+| POST | `/ui/performers/{id}/videos/add` | ADMIN | Add video URL |
+| POST | `/ui/performers/{id}/videos/delete` | ADMIN | Remove video URL |
+| POST | `/ui/performers/{id}/delete` | ADMIN | Delete performer |
 
 ### Exception handling
 `GlobalExceptionHandler` (`@RestControllerAdvice`) maps exceptions to HTTP responses:
@@ -317,17 +403,18 @@ Update the `image:` field to your registry path before applying.
 ### OAuth 2.0 Authorization Server + Resource Server
 `spring-boot-starter-oauth2-authorization-server` is on the classpath. The app acts as both an OAuth2 Authorization Server (issues RS256 JWTs) and a Resource Server (validates them). No external auth server is needed.
 
-**Three security filter chains** (order matters — first match wins):
+**Four security filter chains** (order matters — first match wins):
 
 | Order | Class | `securityMatcher` | Purpose |
 |---|---|---|---|
 | 1 | `AuthorizationServerConfig.authorizationServerSecurityFilterChain` | AS endpoints (`/oauth2/**`, `/.well-known/**`) | Issues and manages tokens; redirects browsers to `/login` |
 | 2 | `AuthorizationServerConfig.formLoginSecurityFilterChain` | `/login` | Provides form login page for `authorization_code` user authentication |
-| 3 | `SecurityConfig.securityFilterChain` | everything else | Stateless API: custom JWT → OAuth2 Bearer → authorization rules |
+| 3 | `SecurityConfig.webFilterChain` | `/ui/**` | Session-based web UI: form login, CSRF enabled, Thymeleaf pages |
+| 4 | `SecurityConfig.securityFilterChain` | everything else | Stateless API: custom JWT → OAuth2 Bearer → authorization rules |
 
 **`AuthorizationServerConfig`** — all AS beans live here:
 - `JWKSource<SecurityContext>`: RSA 2048-bit key pair generated at startup. Used to sign tokens and exposed at `/oauth2/jwks`. Rotates on every restart — externalize to a persistent key store for production.
-- `JwtDecoder`: wraps the JWK source; used by both the AS internally and the `@Order(3)` Resource Server chain to validate tokens.
+- `JwtDecoder`: wraps the JWK source; used by both the AS internally and the `@Order(4)` Resource Server chain to validate tokens.
 - `AuthorizationServerSettings`: issuer = `${OAUTH2_ISSUER:http://localhost:8080}`. Sets the `iss` claim in all tokens and the `issuer` field in the OIDC discovery document.
 - `RegisteredClientRepository` (in-memory): one client — `event-manager-client` / `secret` (BCrypt), grants `client_credentials` + `authorization_code` + `refresh_token`, scopes `openid read write`, redirect URI `http://localhost:8080/authorized`.
 - `OAuth2TokenCustomizer<JwtEncodingContext>`: for `authorization_code` access tokens only, loads the authenticated user's `GrantedAuthority` list and adds it as a `roles` claim (e.g. `["ROLE_ADMIN"]`). `client_credentials` tokens carry only `scope` claims (no user principal exists).
