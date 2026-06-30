@@ -341,7 +341,7 @@ Update the `image:` field to your registry path before applying.
 ### Kafka messaging (performer video events)
 `spring-kafka` + `spring-retry` are on the classpath. Kafka is optional — `KafkaTemplate` is `@Autowired(required = false)` and `KafkaAutoConfiguration` is excluded in the test profile, so the app starts and tests pass without a broker.
 
-**Infrastructure:** Bitnami Kafka 3.7 in KRaft mode (no ZooKeeper). Dual listeners: `EXTERNAL://localhost:9092` for host-to-container access, `INTERNAL://kafka:29092` for container-to-container. The `app` service connects via `KAFKA_BOOTSTRAP_SERVERS: kafka:29092`. Healthcheck uses `kafka-topics.sh --list` with `start_period: 30s`.
+**Infrastructure:** `apache/kafka:3.9.0` (official Apache image) in KRaft mode (no ZooKeeper). Dual listeners: `EXTERNAL://localhost:9092` for host-to-container access, `INTERNAL://kafka:29092` for container-to-container. The `app` service connects via `KAFKA_BOOTSTRAP_SERVERS: kafka:29092`. Healthcheck uses `kafka-topics.sh --list` with `start_period: 30s`. A fixed `CLUSTER_ID` env var is required by the Apache image for KRaft storage formatting (Bitnami generated this automatically). Env vars use `KAFKA_` prefix (e.g. `KAFKA_NODE_ID`) rather than the `KAFKA_CFG_` prefix Bitnami used.
 
 **`VideoEvent`** — `kafka/VideoEvent.java` — Java record: `(String operation, Long performerId, Long videoId)`. `operation` is `"ADD"` or `"DELETE"`. Serialized to JSON by `JsonSerializer`.
 
