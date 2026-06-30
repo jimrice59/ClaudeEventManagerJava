@@ -60,13 +60,46 @@ public class SecurityConfig {
     }
 
     /**
+     * Session-based web UI filter chain for Thymeleaf pages under /ui/**.
+     * Uses form login, session management, and CSRF (all enabled by default).
+     * Runs before the stateless API chain so /ui/** requests never reach it.
+     */
+    @Bean
+    @Order(3)
+    public SecurityFilterChain webFilterChain(HttpSecurity http) throws Exception {
+        http
+            .securityMatcher("/ui/**")
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/ui/login").permitAll()
+                .requestMatchers(HttpMethod.GET, "/ui/events", "/ui/events/{id}").permitAll()
+                .requestMatchers(HttpMethod.GET, "/ui/venues", "/ui/venues/{id}").permitAll()
+                .requestMatchers(HttpMethod.GET, "/ui/performers", "/ui/performers/{id}").permitAll()
+                .anyRequest().authenticated()
+            )
+            .formLogin(form -> form
+                .loginPage("/ui/login")
+                .loginProcessingUrl("/ui/login")
+                .defaultSuccessUrl("/ui/events", true)
+                .failureUrl("/ui/login?error")
+                .permitAll()
+            )
+            .logout(logout -> logout
+                .logoutUrl("/ui/logout")
+                .logoutSuccessUrl("/ui/login?logout")
+                .permitAll()
+            )
+            .authenticationProvider(authenticationProvider());
+        return http.build();
+    }
+
+    /**
      * Stateless API filter chain. Custom JWT filter runs before
      * BearerTokenAuthenticationFilter — if it sets the SecurityContext the
      * OAuth2 Bearer filter skips authentication, allowing both token types on
      * the same Authorization header.
      */
     @Bean
-    @Order(3)
+    @Order(4)
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)

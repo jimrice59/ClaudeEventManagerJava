@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+  <meta charset="UTF-8">
+  <title th:text="${event.name} + ' – Event Manager'">Event</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body>
+<div th:replace="~{fragments/nav :: nav}"></div>
+<div class="container">
+  <div th:if="${successMessage}" class="alert alert-success" th:text="${successMessage}"></div>
+
+  <div class="mb-3">
+    <a th:href="@{/ui/events}" class="text-decoration-none">&larr; All Events</a>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h2 class="card-title" th:text="${event.name}"></h2>
+      <p class="text-muted" th:text="${#temporals.format(event.eventDate, 'EEEE, MMMM d, yyyy h:mm a')}"></p>
+      <p th:if="${event.description}" th:text="${event.description}"></p>
+
+      <div class="row mt-3">
+        <div class="col-md-6">
+          <h6 class="text-uppercase text-muted small">Venue</h6>
+          <p>
+            <a th:href="@{/ui/venues/{id}(id=${event.venue.id})}" th:text="${event.venue.name}"></a><br>
+            <span class="text-muted small" th:text="${event.venue.address + ', ' + event.venue.city + ', ' + event.venue.state}"></span>
+          </p>
+        </div>
+        <div class="col-md-3">
+          <h6 class="text-uppercase text-muted small">Ticket Price</h6>
+          <p th:text="'$' + ${event.ticketPrice}"></p>
+        </div>
+        <div class="col-md-3">
+          <h6 class="text-uppercase text-muted small">Tickets Available</h6>
+          <p th:text="${event.ticketsAvailable}"></p>
+        </div>
+      </div>
+
+      <div th:if="${not #sets.isEmpty(event.performers)}" class="mt-3">
+        <h6 class="text-uppercase text-muted small">Performers</h6>
+        <div class="d-flex flex-wrap gap-2">
+          <a th:each="p : ${event.performers}"
+             th:href="@{/ui/performers/{id}(id=${p.id})}"
+             th:text="${p.name}"
+             class="badge bg-secondary text-decoration-none fs-6"></a>
+        </div>
+      </div>
+
+      <div class="mt-3 text-muted small">
+        <span th:text="'Created: ' + ${#temporals.format(event.createdAt, 'MMM d, yyyy')}"></span>
+        <span class="ms-3" th:text="'Updated: ' + ${#temporals.format(event.updatedAt, 'MMM d, yyyy')}"></span>
+      </div>
+    </div>
+    <div class="card-footer d-flex gap-2">
+      <a sec:authorize="isAuthenticated()" th:href="@{/ui/events/{id}/edit(id=${event.id})}" class="btn btn-secondary">Edit</a>
+      <form sec:authorize="hasRole('ADMIN')" th:action="@{/ui/events/{id}/delete(id=${event.id})}" method="post"
+            onsubmit="return confirm('Delete this event?')">
+        <button type="submit" class="btn btn-danger">Delete</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
