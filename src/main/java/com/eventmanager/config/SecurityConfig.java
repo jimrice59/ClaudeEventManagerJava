@@ -19,9 +19,11 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenAuthenticationFilter;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -94,13 +96,16 @@ public class SecurityConfig {
 
     /**
      * Stateless API filter chain. Custom JWT filter runs before
-     * BearerTokenAuthenticationFilter — if it sets the SecurityContext the
-     * OAuth2 Bearer filter skips authentication, allowing both token types on
-     * the same Authorization header.
+     * BearerTokenAuthenticationFilter. The custom BearerTokenResolver returns
+     * null when JwtAuthenticationFilter has already populated the SecurityContext
+     * (HS256 custom token), causing BearerTokenAuthenticationFilter to skip.
+     * When the SecurityContext is empty (RS256 OAuth2 token), the resolver
+     * extracts the token normally and BearerTokenAuthenticationFilter validates it.
      */
     @Bean
     @Order(4)
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
+        DefaultBearerTokenResolver delegate = new DefaultBearerTokenResolver();
         http
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -118,6 +123,10 @@ public class SecurityConfig {
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthenticationFilter, BearerTokenAuthenticationFilter.class)
             .oauth2ResourceServer(oauth2 -> oauth2
+                .bearerTokenResolver(request ->
+                    SecurityContextHolder.getContext().getAuthentication() != null
+                        ? null
+                        : delegate.resolve(request))
                 .jwt(jwt -> jwt
                     .decoder(jwtDecoder)
                     .jwtAuthenticationConverter(jwtAuthenticationConverter())));
