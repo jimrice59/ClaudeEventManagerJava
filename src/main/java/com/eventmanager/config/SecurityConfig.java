@@ -111,7 +111,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/venues/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/performers/**").permitAll()
-                .requestMatchers("/actuator/health", "/actuator/prometheus").permitAll()
+                .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
