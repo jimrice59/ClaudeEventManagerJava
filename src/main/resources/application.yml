@@ -66,9 +66,20 @@ management:
       show-components: always
       probes:
         enabled: true
+  info:
+    env:
+      enabled: true
+    build:
+      enabled: true
   metrics:
     tags:
       application: ${spring.application.name}
+
+info:
+  app:
+    name: "@project.name@"
+    version: "@project.version@"
+    description: "@project.description@"
 
 logging:
   level:
