@@ -2,6 +2,36 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Table of Contents
+
+- [Build & Run Commands](#build--run-commands)
+  - [Docker](#docker)
+- [Architecture](#architecture)
+  - [Request flow](#request-flow)
+  - [API endpoints](#api-endpoints)
+  - [Connecting to PostgreSQL](#connecting-to-postgresql)
+  - [Development test users](#development-test-users)
+  - [Disabling authentication for development](#disabling-authentication-for-development)
+  - [Authorization model](#authorization-model)
+  - [Thymeleaf web UI](#thymeleaf-web-ui)
+  - [Exception handling](#exception-handling)
+  - [Redis caching](#redis-caching)
+  - [Data model relationships](#data-model-relationships)
+  - [Authentication flows](#authentication-flows)
+  - [DTO separation](#dto-separation)
+  - [Dependency injection](#dependency-injection)
+  - [I/O model](#io-model)
+  - [Transaction conventions](#transaction-conventions)
+  - [Logging](#logging)
+  - [Monitoring](#monitoring)
+  - [Kubernetes](#kubernetes)
+  - [OAuth 2.0 Authorization Server + Resource Server](#oauth-20-authorization-server--resource-server)
+  - [Kafka messaging (performer video events)](#kafka-messaging-performer-video-events)
+  - [Cassandra dual-write (events and performers)](#cassandra-dual-write-events-and-performers)
+  - [EventManagerClient](#eventmanagerclient)
+  - [Test profile](#test-profile)
+  - [Test classes](#test-classes)
+
 ## Build & Run Commands
 
 **Java version requirement:** Lombok 1.18.32 is incompatible with Java 24. Always use Java 21.
