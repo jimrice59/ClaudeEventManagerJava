@@ -144,6 +144,38 @@ HTTP Request
 | DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
+### Connecting to PostgreSQL
+
+**Via Docker (always works, no local psql required):**
+
+```bash
+docker exec -it eventmanager-postgres psql -U postgres -d eventdb
+```
+
+**From the host with a local psql install:**
+
+```bash
+psql -h localhost -p 5432 -U postgres -d eventdb
+```
+
+If this connects to a local PostgreSQL instead of the Docker container (error: `role "postgres" does not exist`), another process is already bound to port 5432. Check with `lsof -i :5432`. Stop the local instance first:
+
+```bash
+brew services stop postgresql@16   # adjust version as needed
+```
+
+**Useful psql commands once connected:**
+
+```sql
+\dt                          -- list tables
+\d users                     -- describe the users table
+SELECT * FROM users;
+SELECT * FROM events;
+SELECT * FROM venues;
+SELECT * FROM performers;
+\q                           -- quit
+```
+
 ### Development test users
 
 The `POST /api/auth/register` endpoint always creates users as `ROLE_USER`. There is no API path to create an admin — the role must be updated directly in the database after registration.
