@@ -144,6 +144,51 @@ HTTP Request
 | DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
 | DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
 
+### Development test users
+
+The `POST /api/auth/register` endpoint always creates users as `ROLE_USER`. There is no API path to create an admin — the role must be updated directly in the database after registration.
+
+**Create both users via the register endpoint:**
+
+```bash
+# Regular user
+curl -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"user1","email":"user1@example.com","password":"password123"}'
+
+# Admin (registers as ROLE_USER; promoted in the next step)
+curl -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","email":"admin@example.com","password":"password123"}'
+```
+
+**Promote the admin user:**
+
+```bash
+docker exec -it eventmanager-postgres psql -U postgres -d eventdb
+```
+
+```sql
+UPDATE users SET role = 'ROLE_ADMIN' WHERE username = 'admin';
+
+-- verify
+SELECT id, username, email, role, created_at FROM users;
+```
+
+Passwords are BCrypt-encoded by the app. Inserting rows directly via SQL would require pre-computing a BCrypt hash; using the register endpoint and then flipping the role column is the correct approach.
+
+**Login and use the token:**
+
+```bash
+# Login and capture token
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"password123"}' | jq -r '.token')
+
+# Use token in subsequent requests
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/events
+```
+
 ### Disabling authentication for development
 
 `DevSecurityConfig` (`com.eventmanager.config`, `@Profile("dev")`) defines a single `@Order(0)` filter chain that matches `/**` and calls `permitAll()` with CSRF disabled. Because `@Order(0)` is lower than all production chains (orders 1–4), it intercepts every request before any auth logic runs. The production `SecurityConfig` and `AuthorizationServerConfig` beans still load — they just never see any traffic.
