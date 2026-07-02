@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [Architecture](#architecture)
   - [Request flow](#request-flow)
   - [API endpoints](#api-endpoints)
+  - [OpenAPI schema](#openapi-schema)
   - [Connecting to PostgreSQL](#connecting-to-postgresql)
   - [Development test users](#development-test-users)
   - [Disabling authentication for development](#disabling-authentication-for-development)
@@ -27,6 +28,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - [Kubernetes](#kubernetes)
   - [OAuth 2.0 Authorization Server + Resource Server](#oauth-20-authorization-server--resource-server)
   - [Kafka messaging (performer video events)](#kafka-messaging-performer-video-events)
+  - [Kafka consumer skeleton](#kafka-consumer-skeleton)
   - [Cassandra dual-write (events and performers)](#cassandra-dual-write-events-and-performers)
   - [EventManagerClient](#eventmanagerclient)
   - [Test profile](#test-profile)
@@ -58,6 +60,8 @@ JAVA_HOME=... $MVN spring-boot:run
 JAVA_HOME=... $MVN test
 
 # Run a single test class
+JAVA_HOME=... $MVN test -Dtest=VenueServiceTest
+JAVA_HOME=... $MVN test -Dtest=EventServiceTest
 JAVA_HOME=... $MVN test -Dtest=PerformerServiceTest
 
 # Package jar
@@ -173,6 +177,45 @@ HTTP Request
 | POST | `/api/v1/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write; Kafka event |
 | DELETE | `/api/v1/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
 | DELETE | `/api/v1/performers/{id}` | ADMIN | Cassandra dual-write |
+
+### OpenAPI schema
+
+`springdoc-openapi-starter-webmvc-ui:2.5.0` is on the classpath. It scans all `@RestController` classes at startup and auto-generates an OpenAPI 3.0 schema. No code generation step is needed — the schema is produced at runtime from the live application.
+
+**Endpoints (no auth required):**
+
+| URL | Format | Notes |
+|---|---|---|
+| `http://localhost:8080/v3/api-docs` | JSON | Full OpenAPI 3.0 schema |
+| `http://localhost:8080/v3/api-docs.yaml` | YAML | Same schema in YAML format |
+| `http://localhost:8080/swagger-ui.html` | HTML | Interactive Swagger UI; supports "Try it out" |
+
+Both `/v3/api-docs/**` and `/swagger-ui/**` are explicitly permitted in `SecurityConfig` so they are accessible without a token.
+
+**What the schema captures automatically** (from Spring MVC metadata):
+- All routes, HTTP methods, path parameters, and query parameters
+- Request body shapes (from `@RequestBody` DTOs)
+- Response body shapes (from declared return types)
+- Bean validation constraints (`@NotBlank`, `@Min`, `@DecimalMax`, etc.) translated to JSON Schema keywords
+
+**What the manual annotations add** (beyond what springdoc can infer):
+- `@Tag` on each controller — groups endpoints into named sections in Swagger UI (Authentication, Events, Venues, Performers)
+- `@Operation(summary, description)` on each method — human-readable summary line and longer description including auth requirements and business rules (e.g. ticket count limits, deduplication behaviour for video URLs)
+- `@SecurityRequirement(name = "bearerAuth")` on write/admin endpoints — renders the lock icon in Swagger UI and wires to the `bearerAuth` scheme
+- `@ApiResponse` per status code — documents 400/401/403/404 error cases and what triggers them (e.g. "Would exceed venue capacity" for 400 on release tickets)
+- `@Parameter(description)` on path variables and query params — clarifies filter semantics (e.g. that `?name=` is a case-insensitive substring match while `?genre=` is an exact match)
+- `@Schema(description, example)` on every DTO field — populates the "Example Value" panel and "Try it out" form with realistic data
+
+**Security scheme:** `OpenApiConfig` registers a single `bearerAuth` HTTP Bearer JWT scheme. Clicking the **Authorize** button in Swagger UI and pasting a JWT from `POST /api/v1/auth/login` adds `Authorization: Bearer <token>` to all subsequent "Try it out" requests automatically.
+
+**Downloading the schema** for use with code generators or API clients:
+```bash
+# JSON
+curl http://localhost:8080/v3/api-docs -o openapi.json
+
+# YAML
+curl http://localhost:8080/v3/api-docs.yaml -o openapi.yaml
+```
 
 ### Connecting to PostgreSQL
 
@@ -592,6 +635,24 @@ Update the `image:` field to your registry path before applying.
 
 **Why `RetryTemplate` not `@Retryable`:** Stacking `@Async` and `@Retryable` on the same method is broken — `@Async` submits to a thread pool and returns a proxy future immediately, so the `@Retryable` proxy on the calling thread has nothing to retry. Using `RetryTemplate` programmatically inside the already-dispatched `@Async` method avoids the AOP proxy ordering conflict. No `@EnableRetry` annotation is needed.
 
+### Kafka consumer skeleton
+
+**`PerformerVideoEventConsumer`** — `kafka/PerformerVideoEventConsumer.java` — skeleton consumer for the same topic:
+- `@KafkaListener` on `performer-video-events`; `groupId` from `spring.kafka.consumer.group-id` (default `event-manager-consumer`)
+- Receives `ConsumerRecord<String, VideoEvent>` for access to partition/offset alongside the typed payload
+- Manual ack mode (`Acknowledgment ack`): `ack.acknowledge()` is called only after successful processing; on exception the offset is not committed so the broker redelivers the message
+- Dispatches on `event.operation()` to `handleAdd` / `handleDelete` stubs — fill these in with the downstream integration logic (search index, CDN, notification, etc.)
+- Unrecognised `operation` values are logged as `WARN` and acknowledged (treat as safe-to-skip)
+- Dead-letter topic strategy is not yet implemented; a comment marks the exception path as the extension point
+
+**Consumer config** (`application.yml` `spring.kafka.consumer`):
+- `JsonDeserializer` with `spring.json.value.default.type: com.eventmanager.kafka.VideoEvent` — deserializes directly to the record type without requiring a type header in the message (the producer does not write one)
+- `spring.json.trusted.packages: com.eventmanager.kafka` — required by `JsonDeserializer` to prevent arbitrary class instantiation
+- `auto-offset-reset: earliest` — new consumer group starts from the beginning of the topic
+- `listener.ack-mode: manual` — matches the `Acknowledgment` parameter in the listener method; Spring will not auto-commit offsets
+
+See `docs/kafka-consumer-guide.md` for a step-by-step walkthrough of how to implement the stubs and extend this consumer.
+
 ### Cassandra dual-write (events and performers)
 Both `EventService` and `PerformerService` write to Postgres first (synchronous, within the JPA transaction), then fire an async Cassandra write via `CassandraAsyncWriter`. Postgres is the source of truth; Cassandra is a secondary store with no read path yet.
 
@@ -679,8 +740,14 @@ List responses use `ParameterizedTypeReference` to preserve generic type informa
 | Class | Style | Tests | Notes |
 |---|---|---|---|
 | `EventManagerApplicationTests` | `@SpringBootTest` | 1 | Context load smoke test |
+| `VenueServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 11 | Pure unit tests, no Spring context |
+| `EventServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 21 | Pure unit tests, no Spring context |
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
+
+**`VenueServiceTest`** covers: `getAllVenues` (list, empty), `getVenueById` (found/not found), `getVenuesByCity` (match, no match), `createVenue` (saves and returns DTO), `updateVenue` (updates all fields, throws when not found), `deleteVenue` (deletes when exists, throws when not found). Single dependency `VenueRepository`; constructor: `new VenueService(venueRepository)`.
+
+**`EventServiceTest`** covers: `getAllEvents` (list, empty), `getEventById` (found/not found), `getEventsByVenue`, `getEventsBetween`, `createEvent` (verifies Cassandra write; throws when venue missing; throws when performer ID not in DB), `updateEvent` (updates fields and Cassandra write; throws when event missing; throws when new venue missing), `reserveTickets` (decrements correctly; throws when count exceeds available; throws when event missing), `releaseTickets` (increments correctly; throws when release would exceed venue capacity; throws when event missing), `deleteEvent` (deletes from Postgres and fires Cassandra delete; throws when not found). Constructor: `new EventService(eventRepository, venueRepository, performerRepository, venueService, performerService, cassandraAsyncWriter)`. `venueService` and `performerService` are mocked — `toDto` is stubbed wherever `toResponse` is exercised. Note: `resolvePerformers` short-circuits on an empty `Set` without calling the repository, so stubbing `findAllById(Set.of())` triggers Mockito strict-mode UnnecessaryStubbing; omit that stub when `performerIds` is empty.
 
 **`PerformerServiceTest`** covers: `getAllPerformers`, `getPerformerById` (found/not found), `searchPerformers`, `getPerformersByGenre`, `createPerformer` (verifies `cassandraAsyncWriter.savePerformer` is called), `updatePerformer` (found/not found), `deletePerformer` (found/not found). Mocks `CassandraAsyncWriter`, `VideoRepository`, and `PerformerVideoEventPublisher` directly via constructor — no `ReflectionTestUtils` needed. Constructor: `new PerformerService(performerRepository, videoRepository, cassandraAsyncWriter, videoEventPublisher)`. The "absent Cassandra/Kafka" scenarios are handled by null-check guards in `CassandraAsyncWriter` and `PerformerVideoEventPublisher` and are not tested at the service level. Repository stubs use the new video-aware method names (`findAllWithVideos`, `findByIdWithVideos`, etc.).
 

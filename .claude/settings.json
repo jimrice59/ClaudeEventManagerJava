@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-21.jdk/Contents/Home /Users/jimrice1959/.sdkman/candidates/maven/current/bin/mvn test *)"
+    ]
+  },
   "hooks": {
     "Stop": [
       {

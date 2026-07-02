@@ -1,5 +1,6 @@
 package com.eventmanager.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,16 +15,27 @@ import java.util.Set;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Event details returned by the API")
 public class EventResponse implements Serializable {
 
+    @Schema(example = "1")
     private Long id;
+    @Schema(example = "Summer Rock Festival")
     private String name;
+    @Schema(example = "Three nights of live rock music at MSG")
     private String description;
+    @Schema(description = "Event date and time (ISO 8601)", example = "2025-08-15T19:00:00")
     private LocalDateTime eventDate;
+    @Schema(example = "99.99")
     private BigDecimal ticketPrice;
+    @Schema(description = "Remaining tickets available for purchase", example = "483")
     private Integer ticketsAvailable;
+    @Schema(description = "Venue where the event is held")
     private VenueDto venue;
+    @Schema(description = "Performers appearing at the event")
     private Set<PerformerDto> performers;
+    @Schema(description = "Record creation timestamp (ISO 8601)")
     private LocalDateTime createdAt;
+    @Schema(description = "Record last-updated timestamp (ISO 8601)")
     private LocalDateTime updatedAt;
 }
