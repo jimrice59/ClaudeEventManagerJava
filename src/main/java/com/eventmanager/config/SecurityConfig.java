@@ -112,12 +112,12 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/venues/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/performers/**").permitAll()
+                .requestMatchers("/api/v1/auth/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/events/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/venues/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/v1/performers/**").permitAll()
                 .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
-                .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .authenticationProvider(authenticationProvider())

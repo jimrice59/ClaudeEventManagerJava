@@ -62,7 +62,7 @@ public class EventManagerClient {
     // -------------------------------------------------------------------------
 
     public AuthResponse register(RegisterRequest request) {
-        return restTemplate.postForObject(baseUrl + "/api/auth/register", request, AuthResponse.class);
+        return restTemplate.postForObject(baseUrl + "/api/v1/auth/register", request, AuthResponse.class);
     }
 
     /** Logs in and stores the returned JWT for subsequent authenticated calls. */
@@ -70,7 +70,7 @@ public class EventManagerClient {
         LoginRequest request = new LoginRequest();
         request.setUsername(username);
         request.setPassword(password);
-        AuthResponse response = restTemplate.postForObject(baseUrl + "/api/auth/login", request, AuthResponse.class);
+        AuthResponse response = restTemplate.postForObject(baseUrl + "/api/v1/auth/login", request, AuthResponse.class);
         if (response != null) {
             this.token = response.getToken();
         }
@@ -82,18 +82,18 @@ public class EventManagerClient {
     // -------------------------------------------------------------------------
 
     public List<EventResponse> getEvents() {
-        return exchangeList(baseUrl + "/api/events", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
+        return exchangeList(baseUrl + "/api/v1/events", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public List<EventResponse> getEventsByVenue(Long venueId) {
-        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/events")
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events")
                 .queryParam("venueId", venueId)
                 .toUriString();
         return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public List<EventResponse> getEventsBetween(LocalDateTime start, LocalDateTime end) {
-        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/events")
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events")
                 .queryParam("start", start.format(DT))
                 .queryParam("end", end.format(DT))
                 .toUriString();
@@ -101,31 +101,31 @@ public class EventManagerClient {
     }
 
     public EventResponse getEvent(Long id) {
-        return restTemplate.exchange(baseUrl + "/api/events/" + id, HttpMethod.GET, publicEntity(), EventResponse.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.GET, publicEntity(), EventResponse.class).getBody();
     }
 
     public EventResponse createEvent(EventRequest request) {
-        return restTemplate.exchange(baseUrl + "/api/events", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/events", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
     }
 
     public EventResponse updateEvent(Long id, EventRequest request) {
-        return restTemplate.exchange(baseUrl + "/api/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
     }
 
     public EventResponse reserveTickets(Long eventId, int count) {
         TicketRequest request = new TicketRequest();
         request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
     }
 
     public EventResponse releaseTickets(Long eventId, int count) {
         TicketRequest request = new TicketRequest();
         request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/events/" + eventId + "/tickets/release", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/release", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
     }
 
     public void deleteEvent(Long id) {
-        restTemplate.exchange(baseUrl + "/api/events/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
+        restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
     }
 
     // -------------------------------------------------------------------------
@@ -133,30 +133,30 @@ public class EventManagerClient {
     // -------------------------------------------------------------------------
 
     public List<VenueDto> getVenues() {
-        return exchangeList(baseUrl + "/api/venues", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
+        return exchangeList(baseUrl + "/api/v1/venues", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public List<VenueDto> getVenuesByCity(String city) {
-        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/venues")
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/venues")
                 .queryParam("city", city)
                 .toUriString();
         return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public VenueDto getVenue(Long id) {
-        return restTemplate.exchange(baseUrl + "/api/venues/" + id, HttpMethod.GET, publicEntity(), VenueDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/venues/" + id, HttpMethod.GET, publicEntity(), VenueDto.class).getBody();
     }
 
     public VenueDto createVenue(VenueDto request) {
-        return restTemplate.exchange(baseUrl + "/api/venues", HttpMethod.POST, authEntity(request), VenueDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/venues", HttpMethod.POST, authEntity(request), VenueDto.class).getBody();
     }
 
     public VenueDto updateVenue(Long id, VenueDto request) {
-        return restTemplate.exchange(baseUrl + "/api/venues/" + id, HttpMethod.PUT, authEntity(request), VenueDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/venues/" + id, HttpMethod.PUT, authEntity(request), VenueDto.class).getBody();
     }
 
     public void deleteVenue(Long id) {
-        restTemplate.exchange(baseUrl + "/api/venues/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
+        restTemplate.exchange(baseUrl + "/api/v1/venues/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
     }
 
     // -------------------------------------------------------------------------
@@ -164,49 +164,49 @@ public class EventManagerClient {
     // -------------------------------------------------------------------------
 
     public List<PerformerDto> getPerformers() {
-        return exchangeList(baseUrl + "/api/performers", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
+        return exchangeList(baseUrl + "/api/v1/performers", HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public List<PerformerDto> searchPerformersByName(String name) {
-        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/performers")
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/performers")
                 .queryParam("name", name)
                 .toUriString();
         return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public List<PerformerDto> getPerformersByGenre(String genre) {
-        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/performers")
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/performers")
                 .queryParam("genre", genre)
                 .toUriString();
         return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }
 
     public PerformerDto getPerformer(Long id) {
-        return restTemplate.exchange(baseUrl + "/api/performers/" + id, HttpMethod.GET, publicEntity(), PerformerDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/performers/" + id, HttpMethod.GET, publicEntity(), PerformerDto.class).getBody();
     }
 
     public PerformerDto createPerformer(PerformerDto request) {
-        return restTemplate.exchange(baseUrl + "/api/performers", HttpMethod.POST, authEntity(request), PerformerDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/performers", HttpMethod.POST, authEntity(request), PerformerDto.class).getBody();
     }
 
     public PerformerDto updatePerformer(Long id, PerformerDto request) {
-        return restTemplate.exchange(baseUrl + "/api/performers/" + id, HttpMethod.PUT, authEntity(request), PerformerDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/performers/" + id, HttpMethod.PUT, authEntity(request), PerformerDto.class).getBody();
     }
 
     public PerformerDto addVideo(Long performerId, String url) {
         VideoRequest request = new VideoRequest();
         request.setUrl(url);
-        return restTemplate.exchange(baseUrl + "/api/performers/" + performerId + "/videos", HttpMethod.POST, authEntity(request), PerformerDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/performers/" + performerId + "/videos", HttpMethod.POST, authEntity(request), PerformerDto.class).getBody();
     }
 
     public PerformerDto deleteVideo(Long performerId, String url) {
         VideoRequest request = new VideoRequest();
         request.setUrl(url);
-        return restTemplate.exchange(baseUrl + "/api/performers/" + performerId + "/videos", HttpMethod.DELETE, authEntity(request), PerformerDto.class).getBody();
+        return restTemplate.exchange(baseUrl + "/api/v1/performers/" + performerId + "/videos", HttpMethod.DELETE, authEntity(request), PerformerDto.class).getBody();
     }
 
     public void deletePerformer(Long id) {
-        restTemplate.exchange(baseUrl + "/api/performers/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
+        restTemplate.exchange(baseUrl + "/api/v1/performers/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
     }
 
     // -------------------------------------------------------------------------

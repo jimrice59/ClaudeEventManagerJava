@@ -152,27 +152,27 @@ HTTP Request
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | public | returns custom JWT |
-| POST | `/api/auth/login` | public | returns custom JWT |
-| GET | `/api/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
-| GET | `/api/events/{id}` | public | cached |
-| POST | `/api/events` | authenticated | Cassandra dual-write |
-| PUT | `/api/events/{id}` | authenticated | Cassandra dual-write |
-| POST | `/api/events/{id}/tickets/reserve` | authenticated | decrement `ticketsAvailable`; 400 if would go negative |
-| POST | `/api/events/{id}/tickets/release` | authenticated | increment `ticketsAvailable`; 400 if would exceed venue capacity |
-| DELETE | `/api/events/{id}` | ADMIN | Cassandra dual-write |
-| GET | `/api/venues` | public | optional `?city=` |
-| GET | `/api/venues/{id}` | public | cached |
-| POST | `/api/venues` | ADMIN | |
-| PUT | `/api/venues/{id}` | ADMIN | |
-| DELETE | `/api/venues/{id}` | ADMIN | |
-| GET | `/api/performers` | public | optional `?name=` or `?genre=` |
-| GET | `/api/performers/{id}` | public | cached |
-| POST | `/api/performers` | ADMIN | Cassandra dual-write |
-| PUT | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
-| POST | `/api/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write; Kafka event |
-| DELETE | `/api/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
-| DELETE | `/api/performers/{id}` | ADMIN | Cassandra dual-write |
+| POST | `/api/v1/auth/register` | public | returns custom JWT |
+| POST | `/api/v1/auth/login` | public | returns custom JWT |
+| GET | `/api/v1/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
+| GET | `/api/v1/events/{id}` | public | cached |
+| POST | `/api/v1/events` | authenticated | Cassandra dual-write |
+| PUT | `/api/v1/events/{id}` | authenticated | Cassandra dual-write |
+| POST | `/api/v1/events/{id}/tickets/reserve` | authenticated | decrement `ticketsAvailable`; 400 if would go negative |
+| POST | `/api/v1/events/{id}/tickets/release` | authenticated | increment `ticketsAvailable`; 400 if would exceed venue capacity |
+| DELETE | `/api/v1/events/{id}` | ADMIN | Cassandra dual-write |
+| GET | `/api/v1/venues` | public | optional `?city=` |
+| GET | `/api/v1/venues/{id}` | public | cached |
+| POST | `/api/v1/venues` | ADMIN | |
+| PUT | `/api/v1/venues/{id}` | ADMIN | |
+| DELETE | `/api/v1/venues/{id}` | ADMIN | |
+| GET | `/api/v1/performers` | public | optional `?name=` or `?genre=` |
+| GET | `/api/v1/performers/{id}` | public | cached |
+| POST | `/api/v1/performers` | ADMIN | Cassandra dual-write |
+| PUT | `/api/v1/performers/{id}` | ADMIN | Cassandra dual-write |
+| POST | `/api/v1/performers/{id}/videos` | ADMIN | add video URL; deduplicates shared URLs; Cassandra dual-write; Kafka event |
+| DELETE | `/api/v1/performers/{id}/videos` | ADMIN | remove video URL from performer; Cassandra dual-write; Kafka event |
+| DELETE | `/api/v1/performers/{id}` | ADMIN | Cassandra dual-write |
 
 ### Connecting to PostgreSQL
 
@@ -208,18 +208,18 @@ SELECT * FROM performers;
 
 ### Development test users
 
-The `POST /api/auth/register` endpoint always creates users as `ROLE_USER`. There is no API path to create an admin — the role must be updated directly in the database after registration.
+The `POST /api/v1/auth/register` endpoint always creates users as `ROLE_USER`. There is no API path to create an admin — the role must be updated directly in the database after registration.
 
 **Create both users via the register endpoint:**
 
 ```bash
 # Regular user
-curl -X POST http://localhost:8080/api/auth/register \
+curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"user1","email":"user1@example.com","password":"password123"}'
 
 # Admin (registers as ROLE_USER; promoted in the next step)
-curl -X POST http://localhost:8080/api/auth/register \
+curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","email":"admin@example.com","password":"password123"}'
 ```
@@ -243,12 +243,12 @@ Passwords are BCrypt-encoded by the app. Inserting rows directly via SQL would r
 
 ```bash
 # Login and capture token
-TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"password123"}' | jq -r '.token')
 
 # Use token in subsequent requests
-curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/events
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/events
 ```
 
 ### Disabling authentication for development
@@ -272,9 +272,9 @@ SPRING_PROFILES_ACTIVE=dev
 
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain` (`@Order(4)`; bypassed when the `dev` profile is active):
-- Public (no token): `GET /api/events/**`, `GET /api/venues/**`, `GET /api/performers/**`, `POST /api/auth/**`, `/actuator/health`, `/actuator/prometheus`
-- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/events/**` (includes ticket reserve/release sub-routes)
-- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/venues/**`, `POST/PUT/DELETE /api/performers/**` (includes video sub-routes), `DELETE /api/events/**`, `/api/admin/**`
+- Public (no token): `GET /api/v1/events/**`, `GET /api/v1/venues/**`, `GET /api/v1/performers/**`, `POST /api/v1/auth/**`, `/actuator/health`, `/actuator/prometheus`
+- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/v1/events/**` (includes ticket reserve/release sub-routes)
+- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/v1/venues/**`, `POST/PUT/DELETE /api/v1/performers/**` (includes video sub-routes), `DELETE /api/v1/events/**`, `/api/v1/admin/**`
 
 Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
@@ -282,7 +282,7 @@ Unauthenticated requests to protected endpoints return **401** — `oauth2Resour
 
 ### Thymeleaf web UI
 
-`spring-boot-starter-thymeleaf` and `thymeleaf-extras-springsecurity6` are on the classpath. All UI pages are served under `/ui/**` by a dedicated set of `@Controller` classes in `com.eventmanager.web`. The REST API under `/api/**` is entirely unchanged.
+`spring-boot-starter-thymeleaf` and `thymeleaf-extras-springsecurity6` are on the classpath. All UI pages are served under `/ui/**` by a dedicated set of `@Controller` classes in `com.eventmanager.web`. The REST API under `/api/v1/**` is entirely unchanged.
 
 **Authentication for the web UI** is session-based and completely separate from the JWT-based REST API. When a user POSTs to `POST /ui/login`, Spring Security validates credentials against the same `UserDetailsServiceImpl` / user table, creates an `HttpSession`, and redirects to `/ui/events`. The session cookie is used for all subsequent `/ui/**` requests. CSRF protection is enabled on the web filter chain (Spring Security default); Thymeleaf injects the CSRF token automatically into all `th:action` forms.
 
@@ -393,7 +393,7 @@ Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2Js
 
 ### Authentication flows
 
-**Custom JWT** (`POST /api/auth/login` → `Authorization: Bearer <token>`)
+**Custom JWT** (`POST /api/v1/auth/login` → `Authorization: Bearer <token>`)
 `JwtTokenProvider` reads `jwt.secret` (BASE64-encoded, HMAC-SHA) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` runs before `BearerTokenAuthenticationFilter`: it validates the HMAC signature, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`. `validateToken` catches all JJWT exceptions including `JwtException` (catch-all for algorithm mismatches when an RS256 OAuth2 token arrives) — returning false allows `BearerTokenAuthenticationFilter` to try next.
 
 **OAuth2 `client_credentials`** (M2M — no user login):
@@ -642,32 +642,32 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 
 | Method | HTTP | Endpoint | Auth |
 |---|---|---|---|
-| `register(RegisterRequest)` | POST | `/api/auth/register` | public |
-| `login(username, password)` | POST | `/api/auth/login` | public |
-| `getEvents()` | GET | `/api/events` | public |
-| `getEventsByVenue(venueId)` | GET | `/api/events?venueId=` | public |
-| `getEventsBetween(start, end)` | GET | `/api/events?start=&end=` | public |
-| `getEvent(id)` | GET | `/api/events/{id}` | public |
-| `createEvent(EventRequest)` | POST | `/api/events` | authenticated |
-| `updateEvent(id, EventRequest)` | PUT | `/api/events/{id}` | authenticated |
-| `reserveTickets(id, count)` | POST | `/api/events/{id}/tickets/reserve` | authenticated |
-| `releaseTickets(id, count)` | POST | `/api/events/{id}/tickets/release` | authenticated |
-| `deleteEvent(id)` | DELETE | `/api/events/{id}` | ADMIN |
-| `getVenues()` | GET | `/api/venues` | public |
-| `getVenuesByCity(city)` | GET | `/api/venues?city=` | public |
-| `getVenue(id)` | GET | `/api/venues/{id}` | public |
-| `createVenue(VenueDto)` | POST | `/api/venues` | ADMIN |
-| `updateVenue(id, VenueDto)` | PUT | `/api/venues/{id}` | ADMIN |
-| `deleteVenue(id)` | DELETE | `/api/venues/{id}` | ADMIN |
-| `getPerformers()` | GET | `/api/performers` | public |
-| `searchPerformersByName(name)` | GET | `/api/performers?name=` | public |
-| `getPerformersByGenre(genre)` | GET | `/api/performers?genre=` | public |
-| `getPerformer(id)` | GET | `/api/performers/{id}` | public |
-| `createPerformer(PerformerDto)` | POST | `/api/performers` | ADMIN |
-| `updatePerformer(id, PerformerDto)` | PUT | `/api/performers/{id}` | ADMIN |
-| `addVideo(performerId, url)` | POST | `/api/performers/{id}/videos` | ADMIN |
-| `deleteVideo(performerId, url)` | DELETE | `/api/performers/{id}/videos` | ADMIN |
-| `deletePerformer(id)` | DELETE | `/api/performers/{id}` | ADMIN |
+| `register(RegisterRequest)` | POST | `/api/v1/auth/register` | public |
+| `login(username, password)` | POST | `/api/v1/auth/login` | public |
+| `getEvents()` | GET | `/api/v1/events` | public |
+| `getEventsByVenue(venueId)` | GET | `/api/v1/events?venueId=` | public |
+| `getEventsBetween(start, end)` | GET | `/api/v1/events?start=&end=` | public |
+| `getEvent(id)` | GET | `/api/v1/events/{id}` | public |
+| `createEvent(EventRequest)` | POST | `/api/v1/events` | authenticated |
+| `updateEvent(id, EventRequest)` | PUT | `/api/v1/events/{id}` | authenticated |
+| `reserveTickets(id, count)` | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated |
+| `releaseTickets(id, count)` | POST | `/api/v1/events/{id}/tickets/release` | authenticated |
+| `deleteEvent(id)` | DELETE | `/api/v1/events/{id}` | ADMIN |
+| `getVenues()` | GET | `/api/v1/venues` | public |
+| `getVenuesByCity(city)` | GET | `/api/v1/venues?city=` | public |
+| `getVenue(id)` | GET | `/api/v1/venues/{id}` | public |
+| `createVenue(VenueDto)` | POST | `/api/v1/venues` | ADMIN |
+| `updateVenue(id, VenueDto)` | PUT | `/api/v1/venues/{id}` | ADMIN |
+| `deleteVenue(id)` | DELETE | `/api/v1/venues/{id}` | ADMIN |
+| `getPerformers()` | GET | `/api/v1/performers` | public |
+| `searchPerformersByName(name)` | GET | `/api/v1/performers?name=` | public |
+| `getPerformersByGenre(genre)` | GET | `/api/v1/performers?genre=` | public |
+| `getPerformer(id)` | GET | `/api/v1/performers/{id}` | public |
+| `createPerformer(PerformerDto)` | POST | `/api/v1/performers` | ADMIN |
+| `updatePerformer(id, PerformerDto)` | PUT | `/api/v1/performers/{id}` | ADMIN |
+| `addVideo(performerId, url)` | POST | `/api/v1/performers/{id}/videos` | ADMIN |
+| `deleteVideo(performerId, url)` | DELETE | `/api/v1/performers/{id}/videos` | ADMIN |
+| `deletePerformer(id)` | DELETE | `/api/v1/performers/{id}` | ADMIN |
 
 List responses use `ParameterizedTypeReference` to preserve generic type information at runtime. `deleteEvent`, `deleteVenue`, and `deletePerformer` return `void` — a 204/200 with no body is a success.
 

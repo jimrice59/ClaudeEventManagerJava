@@ -46,13 +46,13 @@ class PerformerControllerTest {
                 .id(2L).name("Radiohead").genre("Alternative").bio("British alternative rock band").build();
     }
 
-    // --- GET /api/performers ---
+    // --- GET /api/v1/performers ---
 
     @Test
     void getAllPerformers_returnsListWithStatus200() throws Exception {
         when(performerService.getAllPerformers()).thenReturn(List.of(beatles(), radiohead()));
 
-        mockMvc.perform(get("/api/performers"))
+        mockMvc.perform(get("/api/v1/performers"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2))
                 .andExpect(jsonPath("$[0].name").value("The Beatles"))
@@ -63,7 +63,7 @@ class PerformerControllerTest {
     void getAllPerformers_filtersByNameParam() throws Exception {
         when(performerService.searchPerformers("beat")).thenReturn(List.of(beatles()));
 
-        mockMvc.perform(get("/api/performers").param("name", "beat"))
+        mockMvc.perform(get("/api/v1/performers").param("name", "beat"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].name").value("The Beatles"));
@@ -76,7 +76,7 @@ class PerformerControllerTest {
     void getAllPerformers_filtersByGenreParam() throws Exception {
         when(performerService.getPerformersByGenre("Rock")).thenReturn(List.of(beatles()));
 
-        mockMvc.perform(get("/api/performers").param("genre", "Rock"))
+        mockMvc.perform(get("/api/v1/performers").param("genre", "Rock"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].genre").value("Rock"));
@@ -85,13 +85,13 @@ class PerformerControllerTest {
         verify(performerService, never()).getAllPerformers();
     }
 
-    // --- GET /api/performers/{id} ---
+    // --- GET /api/v1/performers/{id} ---
 
     @Test
     void getPerformerById_returnsPerformerWithStatus200() throws Exception {
         when(performerService.getPerformerById(1L)).thenReturn(beatles());
 
-        mockMvc.perform(get("/api/performers/1"))
+        mockMvc.perform(get("/api/v1/performers/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("The Beatles"))
@@ -104,13 +104,13 @@ class PerformerControllerTest {
         when(performerService.getPerformerById(99L))
                 .thenThrow(new ResourceNotFoundException("Performer", "id", 99L));
 
-        mockMvc.perform(get("/api/performers/99"))
+        mockMvc.perform(get("/api/v1/performers/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.message").value("Performer not found with id: '99'"));
     }
 
-    // --- POST /api/performers ---
+    // --- POST /api/v1/performers ---
 
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -118,7 +118,7 @@ class PerformerControllerTest {
         PerformerDto input = PerformerDto.builder().name("The Beatles").genre("Rock").bio("Bio").build();
         when(performerService.createPerformer(any(PerformerDto.class))).thenReturn(beatles());
 
-        mockMvc.perform(post("/api/performers")
+        mockMvc.perform(post("/api/v1/performers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(input)))
                 .andExpect(status().isCreated())
@@ -131,7 +131,7 @@ class PerformerControllerTest {
     void createPerformer_returns400WhenNameBlank() throws Exception {
         PerformerDto invalid = PerformerDto.builder().name("").genre("Rock").build();
 
-        mockMvc.perform(post("/api/performers")
+        mockMvc.perform(post("/api/v1/performers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalid)))
                 .andExpect(status().isBadRequest())
@@ -145,7 +145,7 @@ class PerformerControllerTest {
     void createPerformer_returns403ForUserRole() throws Exception {
         PerformerDto input = PerformerDto.builder().name("The Beatles").genre("Rock").build();
 
-        mockMvc.perform(post("/api/performers")
+        mockMvc.perform(post("/api/v1/performers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(input)))
                 .andExpect(status().isForbidden());
@@ -157,7 +157,7 @@ class PerformerControllerTest {
     void createPerformer_returns401WhenUnauthenticated() throws Exception {
         PerformerDto input = PerformerDto.builder().name("The Beatles").genre("Rock").build();
 
-        mockMvc.perform(post("/api/performers")
+        mockMvc.perform(post("/api/v1/performers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(input)))
                 .andExpect(status().isUnauthorized());
@@ -165,7 +165,7 @@ class PerformerControllerTest {
         verify(performerService, never()).createPerformer(any());
     }
 
-    // --- PUT /api/performers/{id} ---
+    // --- PUT /api/v1/performers/{id} ---
 
     @Test
     @WithMockUser(roles = "ADMIN")
@@ -174,7 +174,7 @@ class PerformerControllerTest {
         PerformerDto updated = PerformerDto.builder().id(1L).name("The Beatles").genre("Classic Rock").bio("Updated").build();
         when(performerService.updatePerformer(eq(1L), any(PerformerDto.class))).thenReturn(updated);
 
-        mockMvc.perform(put("/api/performers/1")
+        mockMvc.perform(put("/api/v1/performers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(update)))
                 .andExpect(status().isOk())
@@ -189,7 +189,7 @@ class PerformerControllerTest {
         when(performerService.updatePerformer(eq(99L), any(PerformerDto.class)))
                 .thenThrow(new ResourceNotFoundException("Performer", "id", 99L));
 
-        mockMvc.perform(put("/api/performers/99")
+        mockMvc.perform(put("/api/v1/performers/99")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(update)))
                 .andExpect(status().isNotFound());
@@ -200,20 +200,20 @@ class PerformerControllerTest {
     void updatePerformer_returns403ForUserRole() throws Exception {
         PerformerDto update = PerformerDto.builder().name("The Beatles").genre("Rock").build();
 
-        mockMvc.perform(put("/api/performers/1")
+        mockMvc.perform(put("/api/v1/performers/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(update)))
                 .andExpect(status().isForbidden());
     }
 
-    // --- DELETE /api/performers/{id} ---
+    // --- DELETE /api/v1/performers/{id} ---
 
     @Test
     @WithMockUser(roles = "ADMIN")
     void deletePerformer_returnsNoContentWithStatus204() throws Exception {
         doNothing().when(performerService).deletePerformer(1L);
 
-        mockMvc.perform(delete("/api/performers/1"))
+        mockMvc.perform(delete("/api/v1/performers/1"))
                 .andExpect(status().isNoContent());
 
         verify(performerService).deletePerformer(1L);
@@ -225,14 +225,14 @@ class PerformerControllerTest {
         doThrow(new ResourceNotFoundException("Performer", "id", 99L))
                 .when(performerService).deletePerformer(99L);
 
-        mockMvc.perform(delete("/api/performers/99"))
+        mockMvc.perform(delete("/api/v1/performers/99"))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @WithMockUser(roles = "USER")
     void deletePerformer_returns403ForUserRole() throws Exception {
-        mockMvc.perform(delete("/api/performers/1"))
+        mockMvc.perform(delete("/api/v1/performers/1"))
                 .andExpect(status().isForbidden());
 
         verify(performerService, never()).deletePerformer(any());
@@ -240,7 +240,7 @@ class PerformerControllerTest {
 
     @Test
     void deletePerformer_returns401WhenUnauthenticated() throws Exception {
-        mockMvc.perform(delete("/api/performers/1"))
+        mockMvc.perform(delete("/api/v1/performers/1"))
                 .andExpect(status().isUnauthorized());
 
         verify(performerService, never()).deletePerformer(any());
