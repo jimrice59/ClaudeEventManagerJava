@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - [Build & Run Commands](#build--run-commands)
   - [Docker](#docker)
+- [Frontend](#frontend)
 - [Architecture](#architecture)
   - [Request flow](#request-flow)
   - [API endpoints](#api-endpoints)
@@ -104,6 +105,34 @@ All config values default to localhost with `postgres/postgres` credentials. Ove
 | `docker compose --profile traefik up -d` | Infrastructure + app + Traefik | `http://localhost` (port 80) or `http://localhost:8080` (direct) |
 
 Traefik dashboard: `http://localhost:9000` (only when running with the `traefik` profile). Traefik auto-discovers the `app` container via Docker labels; `exposedbydefault=false` ensures only labeled services are routed. Scale with `docker compose --profile traefik up -d --scale app=3` — Traefik load-balances across all instances automatically.
+
+## Frontend
+
+`frontend/` is a standalone Vite + React 19 + TypeScript single-page app that consumes the JSON REST API under `/api/v1/**`. It is independent of the server-rendered Thymeleaf UI under `/ui/**` (see [Thymeleaf web UI](#thymeleaf-web-ui)) — same backend, two separate frontends, no shared code.
+
+```bash
+cd frontend
+npm install
+npm run dev      # dev server on http://localhost:5173, proxies /api -> http://localhost:8080
+npm run build     # tsc -b && vite build; output in frontend/dist
+```
+
+The backend must be running on port 8080 (`mvn spring-boot:run`, `docker compose up -d`, or the `dev` profile to skip auth) before `npm run dev` will return data — the frontend has no mock/offline mode.
+
+**Structure:**
+
+| Path | Purpose |
+|---|---|
+| `src/types.ts` | TypeScript interfaces mirroring every backend DTO 1:1 (`EventRequest`, `EventResponse`, `VenueDto`, `PerformerDto`, `TicketRequest`, `VideoRequest`, `AuthResponse`, etc.) |
+| `src/api/client.ts` | Axios instance with an auth interceptor that attaches `Authorization: Bearer <token>` from `localStorage`; `extractErrorMessage()` unwraps the backend's `{status, message}` / `{status, errors}` error shapes |
+| `src/api/{auth,events,performers,venues}.ts` | One thin wrapper function per backend endpoint — no business logic, just typed request/response |
+| `src/context/AuthContext.tsx` | Holds the logged-in user (`username`, `email`, `role`); persists token + user to `localStorage` (`event-manager.token`, `event-manager.user`) so a page refresh doesn't lose the session — there is no `GET /api/v1/auth/me` endpoint to re-fetch from |
+| `src/components/ProtectedRoute.tsx` | `ProtectedRoute` (any authenticated user) and `AdminRoute` (`ROLE_ADMIN` only) route guards, mirroring the backend's `@PreAuthorize` rules per endpoint. **Client-side only** — a UX convenience, not a security boundary; the backend re-enforces every rule independently |
+| `src/pages/*` | One component per screen: `LoginPage`, `RegisterPage`, `EventsPage`/`EventDetailPage`/`EventFormPage` (create/edit share one form, includes ticket reserve/release), `PerformersPage`/`PerformerDetailPage`/`PerformerFormPage` (video add/remove lives on the detail page, not the form), `VenuesPage`/`VenueFormPage` |
+
+**Dev proxy vs. prod:** `vite.config.ts` proxies `/api/*` to `http://localhost:8080` in dev so no CORS configuration is needed locally. In production, set `VITE_API_BASE_URL` to the deployed backend origin (`src/api/client.ts` prepends it to `/api/v1`); if unset, requests go to the frontend's own origin, which only works behind a reverse proxy that forwards `/api` to the backend.
+
+**Date handling:** `EventFormPage` reads/writes `<input type="datetime-local">`, which produces `yyyy-MM-ddTHH:mm` (no seconds). `EventRequest.eventDate` is built by appending `:00` before sending, matching `LocalDateTime` parsing on the backend (see `EventController`'s `@DateTimeFormat(iso = DATE_TIME)` for the equivalent list-filter parsing).
 
 ## Architecture
 
