@@ -81,16 +81,14 @@ export function EventDetailPage() {
     <div className="card detail-card">
       <div className="page-header">
         <h1>{event.name}</h1>
-        {isAuthenticated && (
+        {isAdmin && (
           <div className="button-row">
             <Link to={`/events/${event.id}/edit`} className="button">
               Edit
             </Link>
-            {isAdmin && (
-              <button onClick={handleDelete} disabled={actionPending} className="button danger">
-                Delete
-              </button>
-            )}
+            <button onClick={handleDelete} disabled={actionPending} className="button danger">
+              Delete
+            </button>
           </div>
         )}
       </div>

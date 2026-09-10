@@ -72,7 +72,7 @@ public class WebEventController {
     }
 
     @GetMapping("/new")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public String newForm(Model model) {
         model.addAttribute("event", new EventRequest());
         populateFormModel(model);
@@ -80,7 +80,7 @@ public class WebEventController {
     }
 
     @PostMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public String create(@Valid @ModelAttribute("event") EventRequest request,
                          BindingResult result, Model model,
                          RedirectAttributes redirectAttrs) {
@@ -97,7 +97,7 @@ public class WebEventController {
     }
 
     @GetMapping("/{id}/edit")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public String editForm(@PathVariable Long id, Model model) {
         model.addAttribute("event", toRequest(eventService.getEventById(id)));
         model.addAttribute("eventId", id);
@@ -106,7 +106,7 @@ public class WebEventController {
     }
 
     @PostMapping("/{id}/edit")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public String update(@PathVariable Long id,
                          @Valid @ModelAttribute("event") EventRequest request,
                          BindingResult result, Model model,

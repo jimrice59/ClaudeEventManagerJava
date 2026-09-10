@@ -1,6 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
-import { ProtectedRoute, AdminRoute } from "./components/ProtectedRoute";
+import { AdminRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { EventsPage } from "./pages/EventsPage";
@@ -27,17 +27,17 @@ function App() {
           <Route
             path="/events/new"
             element={
-              <ProtectedRoute>
+              <AdminRoute>
                 <EventFormPage />
-              </ProtectedRoute>
+              </AdminRoute>
             }
           />
           <Route
             path="/events/:id/edit"
             element={
-              <ProtectedRoute>
+              <AdminRoute>
                 <EventFormPage />
-              </ProtectedRoute>
+              </AdminRoute>
             }
           />
 

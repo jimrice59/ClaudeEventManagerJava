@@ -65,32 +65,34 @@ public class EventController {
     }
 
     @Operation(summary = "Create event", security = @SecurityRequirement(name = "bearerAuth"),
-               description = "Requires authentication (ROLE_USER or ROLE_ADMIN).")
+               description = "Requires ROLE_ADMIN.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Event created",
                     content = @Content(schema = @Schema(implementation = EventResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation error or invalid performer/venue IDs",
                     content = @Content),
-            @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content)
+            @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Requires ROLE_ADMIN", content = @Content)
     })
     @PostMapping
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<EventResponse> createEvent(@Valid @RequestBody EventRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(eventService.createEvent(request));
     }
 
     @Operation(summary = "Update event", security = @SecurityRequirement(name = "bearerAuth"),
-               description = "Requires authentication (ROLE_USER or ROLE_ADMIN).")
+               description = "Requires ROLE_ADMIN.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Event updated",
                     content = @Content(schema = @Schema(implementation = EventResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation error or invalid venue/performer IDs",
                     content = @Content),
             @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Requires ROLE_ADMIN", content = @Content),
             @ApiResponse(responseCode = "404", description = "Event not found", content = @Content)
     })
     @PutMapping("/{id}")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<EventResponse> updateEvent(
             @Parameter(description = "Event ID") @PathVariable Long id,
             @Valid @RequestBody EventRequest request) {

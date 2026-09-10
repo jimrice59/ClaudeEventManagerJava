@@ -127,7 +127,7 @@ The backend must be running on port 8080 (`mvn spring-boot:run`, `docker compose
 | `src/api/client.ts` | Axios instance with an auth interceptor that attaches `Authorization: Bearer <token>` from `localStorage`; `extractErrorMessage()` unwraps the backend's `{status, message}` / `{status, errors}` error shapes |
 | `src/api/{auth,events,performers,venues}.ts` | One thin wrapper function per backend endpoint — no business logic, just typed request/response |
 | `src/context/AuthContext.tsx` | Holds the logged-in user (`username`, `email`, `role`); persists token + user to `localStorage` (`event-manager.token`, `event-manager.user`) so a page refresh doesn't lose the session — there is no `GET /api/v1/auth/me` endpoint to re-fetch from |
-| `src/components/ProtectedRoute.tsx` | `ProtectedRoute` (any authenticated user) and `AdminRoute` (`ROLE_ADMIN` only) route guards, mirroring the backend's `@PreAuthorize` rules per endpoint. **Client-side only** — a UX convenience, not a security boundary; the backend re-enforces every rule independently |
+| `src/components/ProtectedRoute.tsx` | `AdminRoute` (`ROLE_ADMIN` only) route guard, mirroring the backend's `@PreAuthorize` rules per endpoint — used on event/performer/venue create and edit routes. Ticket reserve/release (any authenticated user) isn't a separate route, so it's gated inline in `EventDetailPage` via `isAuthenticated` rather than a route guard. **Client-side only** — a UX convenience, not a security boundary; the backend re-enforces every rule independently |
 | `src/pages/*` | One component per screen: `LoginPage`, `RegisterPage`, `EventsPage`/`EventDetailPage`/`EventFormPage` (create/edit share one form, includes ticket reserve/release), `PerformersPage`/`PerformerDetailPage`/`PerformerFormPage` (video add/remove lives on the detail page, not the form), `VenuesPage`/`VenueFormPage` |
 
 **Dev proxy vs. prod:** `vite.config.ts` proxies `/api/*` to `http://localhost:8080` in dev so no CORS configuration is needed locally. In production, set `VITE_API_BASE_URL` to the deployed backend origin (`src/api/client.ts` prepends it to `/api/v1`); if unset, requests go to the frontend's own origin, which only works behind a reverse proxy that forwards `/api` to the backend.
@@ -189,8 +189,8 @@ HTTP Request
 | POST | `/api/v1/auth/login` | public | returns custom JWT |
 | GET | `/api/v1/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
 | GET | `/api/v1/events/{id}` | public | cached |
-| POST | `/api/v1/events` | authenticated | Cassandra dual-write |
-| PUT | `/api/v1/events/{id}` | authenticated | Cassandra dual-write |
+| POST | `/api/v1/events` | ADMIN | Cassandra dual-write |
+| PUT | `/api/v1/events/{id}` | ADMIN | Cassandra dual-write |
 | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated | decrement `ticketsAvailable`; 400 if would go negative |
 | POST | `/api/v1/events/{id}/tickets/release` | authenticated | increment `ticketsAvailable`; 400 if would exceed venue capacity |
 | DELETE | `/api/v1/events/{id}` | ADMIN | Cassandra dual-write |
@@ -345,10 +345,10 @@ SPRING_PROFILES_ACTIVE=dev
 ### Authorization model
 Defined in `SecurityConfig.securityFilterChain` (`@Order(4)`; bypassed when the `dev` profile is active):
 - Public (no token): `GET /api/v1/events/**`, `GET /api/v1/venues/**`, `GET /api/v1/performers/**`, `POST /api/v1/auth/**`, `/actuator/health`, `/actuator/prometheus`
-- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST/PUT /api/v1/events/**` (includes ticket reserve/release sub-routes)
-- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/v1/venues/**`, `POST/PUT/DELETE /api/v1/performers/**` (includes video sub-routes), `DELETE /api/v1/events/**`, `/api/v1/admin/**`
+- Authenticated (`ROLE_USER` or `ROLE_ADMIN`): `POST /api/v1/events/{id}/tickets/reserve`, `POST /api/v1/events/{id}/tickets/release`
+- Admin only (`ROLE_ADMIN`): `POST/PUT/DELETE /api/v1/events/**` (create, update, delete), `POST/PUT/DELETE /api/v1/venues/**`, `POST/PUT/DELETE /api/v1/performers/**` (includes video sub-routes), `/api/v1/admin/**`
 
-Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
+The filter chain's own rule for `/api/v1/events/**` only requires *authentication* (`.anyRequest().authenticated()`) — it does not distinguish create/update from ticket reserve/release. The role split above is enforced by `@PreAuthorize` on each `EventController` method (`hasRole('ADMIN')` on `createEvent`/`updateEvent`/`deleteEvent`, `isAuthenticated()` on `reserveTickets`/`releaseTickets`). Fine-grained rules use `@PreAuthorize` on controller methods; the filter chain rules are the outer gate.
 
 Unauthenticated requests to protected endpoints return **401** — `oauth2ResourceServer` installs a `BearerTokenAuthenticationEntryPoint`. Authenticated-but-insufficient-role requests return **403** (from `GlobalExceptionHandler.handleAccessDeniedException`).
 
@@ -408,10 +408,10 @@ All web controllers delegate directly to the existing services (`EventService`, 
 | POST | `/ui/logout` | authenticated | Invalidates session |
 | GET | `/ui/events` | public | List all events |
 | GET | `/ui/events/{id}` | public | View event |
-| GET | `/ui/events/new` | authenticated | New event form |
-| POST | `/ui/events` | authenticated | Create event |
-| GET | `/ui/events/{id}/edit` | authenticated | Edit form pre-filled from existing event |
-| POST | `/ui/events/{id}/edit` | authenticated | Update event |
+| GET | `/ui/events/new` | ADMIN | New event form |
+| POST | `/ui/events` | ADMIN | Create event |
+| GET | `/ui/events/{id}/edit` | ADMIN | Edit form pre-filled from existing event |
+| POST | `/ui/events/{id}/edit` | ADMIN | Update event |
 | POST | `/ui/events/{id}/delete` | ADMIN | Delete event |
 | GET | `/ui/venues` | public | List venues (optional `?city=`) |
 | GET | `/ui/venues/{id}` | public | View venue |
@@ -738,8 +738,8 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getEventsByVenue(venueId)` | GET | `/api/v1/events?venueId=` | public |
 | `getEventsBetween(start, end)` | GET | `/api/v1/events?start=&end=` | public |
 | `getEvent(id)` | GET | `/api/v1/events/{id}` | public |
-| `createEvent(EventRequest)` | POST | `/api/v1/events` | authenticated |
-| `updateEvent(id, EventRequest)` | PUT | `/api/v1/events/{id}` | authenticated |
+| `createEvent(EventRequest)` | POST | `/api/v1/events` | ADMIN |
+| `updateEvent(id, EventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN |
 | `reserveTickets(id, count)` | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated |
 | `releaseTickets(id, count)` | POST | `/api/v1/events/{id}/tickets/release` | authenticated |
 | `deleteEvent(id)` | DELETE | `/api/v1/events/{id}` | ADMIN |

@@ -48,15 +48,13 @@ Already have an account? **Log in** posts to `POST /api/v1/auth/login` instead.
 
 ### 3. What changes once logged in
 
-The nav bar now shows the username and role, plus a **Log out** button. Concretely, being logged in unlocks:
+The nav bar now shows the username and role, plus a **Log out** button. Concretely, being logged in (as `ROLE_USER` or `ROLE_ADMIN`) unlocks:
 
 | Action | Where |
 |---|---|
-| Create a new event | "New event" button on `/events` |
-| Edit an event | "Edit" button on `/events/:id` |
 | Reserve or release tickets | Ticket form on `/events/:id` |
 
-The client never has to re-enter credentials for these — once logged in, every API call automatically carries the session's JWT.
+The client never has to re-enter credentials for this — once logged in, every API call automatically carries the session's JWT.
 
 Session persistence: the token and basic profile (username/email/role) are kept in the browser's `localStorage`, so refreshing the page or closing and reopening the tab keeps the client logged in. Logging out clears it. There's no server-side session to expire early — the JWT itself is valid for 24 hours from issuance regardless of browser activity.
 
@@ -64,11 +62,11 @@ Session persistence: the token and basic profile (username/email/role) are kept 
 
 A subset of clients — those whose account has `ROLE_ADMIN` — additionally see:
 
+- Create / edit / delete **events**
 - Create / edit / delete **performers**, including adding or removing video URLs on a performer's detail page
 - Create / edit / delete **venues**
-- Delete **events**
 
-A `ROLE_USER` client who tries to reach one of these screens directly (e.g. typing `/venues/new` in the address bar) is silently redirected away — the UI hides what it knows the account can't do. This is a convenience, not the actual security boundary: the backend independently rejects any unauthorized request with a 403, whether or not it came through this UI.
+Being a plain `ROLE_USER` is not enough for any of the above, even though the account is logged in — only the ticket reserve/release action in the previous section is available to non-admin accounts. A `ROLE_USER` client who tries to reach an admin screen directly (e.g. typing `/events/new` in the address bar) is silently redirected away — the UI hides what it knows the account can't do. This is a convenience, not the actual security boundary: the backend independently rejects any unauthorized request with a 403, whether or not it came through this UI.
 
 ### 5. Errors
 
@@ -80,7 +78,7 @@ If a request fails — bad credentials, a validation error, insufficient tickets
 |---|---|---|---|
 | Browse events/performers/venues | ✅ | ✅ | ✅ |
 | Register / log in | ✅ | — | — |
-| Create/edit events, reserve/release tickets | ❌ | ✅ | ✅ |
-| Delete events | ❌ | ❌ | ✅ |
+| Reserve/release tickets | ❌ | ✅ | ✅ |
+| Create/edit/delete events | ❌ | ❌ | ✅ |
 | Create/edit/delete performers, manage videos | ❌ | ❌ | ✅ |
 | Create/edit/delete venues | ❌ | ❌ | ✅ |

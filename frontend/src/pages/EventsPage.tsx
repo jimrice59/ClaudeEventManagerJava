@@ -8,7 +8,7 @@ import { useAuth } from "../context/AuthContext";
 import type { EventResponse, VenueDto } from "../types";
 
 export function EventsPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAdmin } = useAuth();
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [venues, setVenues] = useState<VenueDto[]>([]);
   const [venueId, setVenueId] = useState("");
@@ -61,7 +61,7 @@ export function EventsPage() {
     <div>
       <div className="page-header">
         <h1>Events</h1>
-        {isAuthenticated && (
+        {isAdmin && (
           <Link to="/events/new" className="button">
             New event
           </Link>

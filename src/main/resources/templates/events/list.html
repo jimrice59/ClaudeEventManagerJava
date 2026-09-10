@@ -11,7 +11,7 @@
 <div class="container">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h2>Events</h2>
-    <a sec:authorize="isAuthenticated()" th:href="@{/ui/events/new}" class="btn btn-primary">+ New Event</a>
+    <a sec:authorize="hasRole('ADMIN')" th:href="@{/ui/events/new}" class="btn btn-primary">+ New Event</a>
   </div>
 
   <div th:if="${successMessage}" class="alert alert-success" th:text="${successMessage}"></div>
@@ -32,7 +32,7 @@
         </div>
         <div class="card-footer d-flex gap-2">
           <a th:href="@{/ui/events/{id}(id=${event.id})}" class="btn btn-sm btn-outline-primary">View</a>
-          <a sec:authorize="isAuthenticated()" th:href="@{/ui/events/{id}/edit(id=${event.id})}" class="btn btn-sm btn-outline-secondary">Edit</a>
+          <a sec:authorize="hasRole('ADMIN')" th:href="@{/ui/events/{id}/edit(id=${event.id})}" class="btn btn-sm btn-outline-secondary">Edit</a>
           <form sec:authorize="hasRole('ADMIN')" th:action="@{/ui/events/{id}/delete(id=${event.id})}" method="post"
                 onsubmit="return confirm('Delete this event?')">
             <button type="submit" class="btn btn-sm btn-outline-danger">Delete</button>
