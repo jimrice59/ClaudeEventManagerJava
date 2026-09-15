@@ -100,6 +100,45 @@ race now only sees confirmed sales.
   doesn't exist in this app today — its own crash-recovery story (a missed expiry event orphans a
   ticket) needs designing, not assuming.
 
+## §07 A more robust reclaim: the pending-holds index
+
+Pub/Sub keyspace notifications (§03) are fire-and-forget — at-most-once delivery, no
+persistence, no replay. If the listener is disconnected or mid-restart when a hold's TTL lapses,
+Redis deletes the key silently and no trace remains to reconcile from later. For something as
+consequential as "does this ticket become available again," that's not enough on its own.
+
+A more durable complement: alongside each hold key, add its ticket ID to a ZSET —
+`holds:pending` — scored by the hold's expiry timestamp (epoch millis), set at the moment it's
+claimed in §02's Lua script. A small periodic job then polls that index directly:
+
+```
+ZRANGEBYSCORE holds:pending -inf <now>
+```
+
+Anything returned has an expiry timestamp in the past — whether or not a Pub/Sub notification
+about it ever fired. For each ID found, the job runs a small Lua script that atomically checks
+the hold key is really gone (i.e. it wasn't purchased or explicitly released in the meantime),
+removes the entry from `holds:pending`, and `SADD`s the ticket back into the event's available
+pool. Using Pub/Sub as the fast path and this sweep as the guaranteed backstop means nothing gets
+permanently stranded even if a notification is lost.
+
+## §08 Where the sweep runs
+
+The sweep doesn't need to be a separate service. It can be a scheduled job inside the
+application itself — reusing the app's existing Redis connection, logging, and metrics — as
+long as the reclaim step is written so that concurrent execution across replicas is safe: a Lua
+script that conditionally `ZREM`s a specific member and only `SADD`s it back if that `ZREM`
+actually removed something. Under that scheme, N application instances all running the same
+sweep on their own schedules simply means N-1 of them see a no-op for any given entry, not a
+correctness problem — just some redundant, cheap range queries.
+
+Redis Cluster doesn't change this: slot routing for `holds:pending` (or a per-event key,
+`holds:pending:{eventId}`) is a client-side concern that a cluster-aware client already handles
+transparently, whether the caller is in-process or an external process. The only reason to pull
+the sweep out into a standalone job is if the redundant per-replica scanning becomes measurable
+load at some scale — at which point a lightweight Redis-native mutex
+(`SET sweep:lock NX PX <ttl>`) is a smaller change than standing up a new deployable.
+
 ---
 
 No implementation yet — this captures the design discussion for review before any code is written.
