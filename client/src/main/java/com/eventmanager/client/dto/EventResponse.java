@@ -20,7 +20,7 @@ public class EventResponse {
     private String description;
     private LocalDateTime eventDate;
     private BigDecimal ticketPrice;
-    private Integer ticketsAvailable;
+    private Integer ticketsTotal;
     private VenueDto venue;
     private Set<PerformerDto> performers;
     private LocalDateTime createdAt;

@@ -112,16 +112,9 @@ public class EventManagerClient {
         return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
     }
 
-    public EventResponse reserveTickets(Long eventId, int count) {
-        TicketRequest request = new TicketRequest();
-        request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
-    }
-
-    public EventResponse releaseTickets(Long eventId, int count) {
-        TicketRequest request = new TicketRequest();
-        request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/release", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
+    /** Live count of AVAILABLE tickets for the event, computed by the server from Postgres — not a stored field. */
+    public Long getNumAvailableTickets(Long eventId) {
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/available/count", HttpMethod.GET, publicEntity(), Long.class).getBody();
     }
 
     public void deleteEvent(Long id) {

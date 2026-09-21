@@ -31,7 +31,7 @@ public class EventRequest {
 
     @NotNull
     @Min(0)
-    private Integer ticketsAvailable;
+    private Integer ticketsTotal;
 
     @NotNull
     private Long venueId;
