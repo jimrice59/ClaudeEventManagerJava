@@ -8,6 +8,7 @@ import com.eventmanager.model.User;
 import com.eventmanager.repository.UserRepository;
 import com.eventmanager.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -16,6 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -27,10 +29,13 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
+        log.info("Registering user username='{}'", request.getUsername());
         if (userRepository.existsByUsername(request.getUsername())) {
+            log.warn("Registration failed: username already taken '{}'", request.getUsername());
             throw new IllegalArgumentException("Username is already taken: " + request.getUsername());
         }
         if (userRepository.existsByEmail(request.getEmail())) {
+            log.warn("Registration failed: email already in use '{}'", request.getEmail());
             throw new IllegalArgumentException("Email is already in use: " + request.getEmail());
         }
 
@@ -48,6 +53,7 @@ public class AuthService {
         SecurityContextHolder.getContext().setAuthentication(authentication);
         String token = tokenProvider.generateToken(authentication);
 
+        log.info("Registered user id={} username='{}'", user.getId(), user.getUsername());
         return AuthResponse.builder()
                 .token(token)
                 .username(user.getUsername())
@@ -58,6 +64,7 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public AuthResponse login(LoginRequest request) {
+        log.info("Login attempt for username='{}'", request.getUsername());
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
         SecurityContextHolder.getContext().setAuthentication(authentication);
@@ -66,6 +73,7 @@ public class AuthService {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow();
 
+        log.info("User '{}' logged in successfully", user.getUsername());
         return AuthResponse.builder()
                 .token(token)
                 .username(user.getUsername())

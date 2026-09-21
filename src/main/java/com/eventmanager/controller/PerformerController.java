@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/performers")
 @RequiredArgsConstructor
@@ -38,6 +40,7 @@ public class PerformerController {
                 @RequestParam(required = false) String name,
             @Parameter(description = "Genre filter (case-insensitive exact match)")
                 @RequestParam(required = false) String genre) {
+        log.debug("Received request to list performers: name='{}', genre='{}'", name, genre);
         if (name != null) {
             return ResponseEntity.ok(performerService.searchPerformers(name));
         }
@@ -56,6 +59,7 @@ public class PerformerController {
     @GetMapping("/{id}")
     public ResponseEntity<PerformerDto> getPerformerById(
             @Parameter(description = "Performer ID") @PathVariable Long id) {
+        log.debug("Received request to get performer id={}", id);
         return ResponseEntity.ok(performerService.getPerformerById(id));
     }
 
@@ -71,6 +75,7 @@ public class PerformerController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<PerformerDto> createPerformer(@Valid @RequestBody PerformerDto dto) {
+        log.debug("Received request to create performer name='{}'", dto.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(performerService.createPerformer(dto));
     }
 
@@ -89,6 +94,7 @@ public class PerformerController {
     public ResponseEntity<PerformerDto> updatePerformer(
             @Parameter(description = "Performer ID") @PathVariable Long id,
             @Valid @RequestBody PerformerDto dto) {
+        log.debug("Received request to update performer id={}", id);
         return ResponseEntity.ok(performerService.updatePerformer(id, dto));
     }
 
@@ -109,6 +115,7 @@ public class PerformerController {
     public ResponseEntity<PerformerDto> addVideo(
             @Parameter(description = "Performer ID") @PathVariable Long id,
             @Valid @RequestBody VideoRequest request) {
+        log.debug("Received request to add video to performer id={}", id);
         return ResponseEntity.ok(performerService.addVideo(id, request.getUrl()));
     }
 
@@ -129,6 +136,7 @@ public class PerformerController {
     public ResponseEntity<PerformerDto> deleteVideo(
             @Parameter(description = "Performer ID") @PathVariable Long id,
             @Valid @RequestBody VideoRequest request) {
+        log.debug("Received request to remove video from performer id={}", id);
         return ResponseEntity.ok(performerService.deleteVideo(id, request.getUrl()));
     }
 
@@ -144,6 +152,7 @@ public class PerformerController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deletePerformer(
             @Parameter(description = "Performer ID") @PathVariable Long id) {
+        log.debug("Received request to delete performer id={}", id);
         performerService.deletePerformer(id);
         return ResponseEntity.noContent().build();
     }

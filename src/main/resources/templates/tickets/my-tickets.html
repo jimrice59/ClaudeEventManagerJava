@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+  <meta charset="UTF-8">
+  <title>My Tickets – Event Manager</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+</head>
+<body>
+<div th:replace="~{fragments/nav :: nav}"></div>
+<div class="container">
+  <h2 class="mb-3">My Tickets</h2>
+
+  <div th:if="${successMessage}" class="alert alert-success" th:text="${successMessage}"></div>
+  <div th:if="${errorMessage}" class="alert alert-danger" th:text="${errorMessage}"></div>
+
+  <div th:if="${#lists.isEmpty(tickets.content)}" class="text-muted">
+    You don't have any tickets yet. Find an event and reserve one from its detail page.
+  </div>
+
+  <ul class="list-group mb-3" th:unless="${#lists.isEmpty(tickets.content)}">
+    <li class="list-group-item" th:each="ticket : ${tickets.content}">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <a th:href="@{/ui/events/{id}(id=${ticket.eventId})}" th:text="${ticket.eventName}" class="fw-semibold"></a>
+          <div class="text-muted small">
+            <span th:text="${#temporals.format(ticket.eventDate, 'MMM d, yyyy h:mm a')}"></span>
+            &middot; <span th:text="${ticket.venueName}"></span>
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="badge bg-warning text-dark" th:if="${ticket.status.name() == 'RESERVED'}" th:text="${ticket.status}"></span>
+          <span class="badge bg-success" th:if="${ticket.status.name() == 'SOLD'}" th:text="${ticket.status}"></span>
+          <span class="badge bg-secondary" th:if="${ticket.status.name() == 'AVAILABLE'}" th:text="${ticket.status}"></span>
+
+          <form th:if="${ticket.status.name() == 'RESERVED'}"
+                th:action="@{/ui/tickets/{id}/purchase(id=${ticket.id})}" method="post" class="d-flex gap-1">
+            <input type="text" name="userCredentials" class="form-control form-control-sm" placeholder="Payment details" required style="max-width:160px">
+            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Purchase</button>
+          </form>
+          <form th:if="${ticket.status.name() == 'RESERVED'}"
+                th:action="@{/ui/tickets/{id}/release(id=${ticket.id})}" method="post">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Release</button>
+          </form>
+          <form th:if="${ticket.status.name() == 'SOLD'}"
+                th:action="@{/ui/tickets/{id}/cancel(id=${ticket.id})}" method="post"
+                onsubmit="return confirm('Cancel this ticket? This cannot be undone.')">
+            <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
+          </form>
+        </div>
+      </div>
+    </li>
+  </ul>
+
+  <nav th:unless="${#lists.isEmpty(tickets.content)}">
+    <ul class="pagination pagination-sm">
+      <li class="page-item" th:classappend="${tickets.page == 0} ? 'disabled'">
+        <a class="page-link" th:href="@{/ui/tickets/me(page=${tickets.page - 1}, size=${tickets.size})}">Previous</a>
+      </li>
+      <li class="page-item disabled">
+        <span class="page-link" th:text="'Page ' + (${tickets.page} + 1) + ' of ' + ${#numbers.formatInteger(tickets.totalPages == 0 ? 1 : tickets.totalPages, 1)}"></span>
+      </li>
+      <li class="page-item" th:classappend="${tickets.last} ? 'disabled'">
+        <a class="page-link" th:href="@{/ui/tickets/me(page=${tickets.page + 1}, size=${tickets.size})}">Next</a>
+      </li>
+    </ul>
+  </nav>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

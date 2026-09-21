@@ -52,6 +52,7 @@ public class PerformerService {
                 });
     }
 
+    @Cacheable(value = "performersByName", key = "#name")
     @Transactional(readOnly = true)
     public List<PerformerDto> searchPerformers(String name) {
         log.debug("Searching performers by name='{}'", name);
@@ -62,6 +63,7 @@ public class PerformerService {
         return results;
     }
 
+    @Cacheable(value = "performersByGenre", key = "#genre")
     @Transactional(readOnly = true)
     public List<PerformerDto> getPerformersByGenre(String genre) {
         log.debug("Fetching performers by genre='{}'", genre);

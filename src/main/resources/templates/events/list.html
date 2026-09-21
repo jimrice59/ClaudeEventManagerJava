@@ -27,7 +27,7 @@
           <p class="card-text" th:text="${event.venue?.name}"></p>
           <p class="card-text">
             <span class="badge bg-success" th:text="'$' + ${event.ticketPrice}"></span>
-            <span class="badge bg-secondary ms-1" th:text="${event.ticketsAvailable} + ' tickets'"></span>
+            <span class="badge bg-secondary ms-1" th:text="${event.ticketsTotal} + ' tickets total'"></span>
           </p>
         </div>
         <div class="card-footer d-flex gap-2">

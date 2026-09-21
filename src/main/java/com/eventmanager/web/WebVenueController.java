@@ -4,6 +4,7 @@ import com.eventmanager.dto.VenueDto;
 import com.eventmanager.service.VenueService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -11,6 +12,7 @@ import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+@Slf4j
 @Controller
 @RequestMapping("/ui/venues")
 @RequiredArgsConstructor
@@ -20,6 +22,7 @@ public class WebVenueController {
 
     @GetMapping
     public String list(@RequestParam(required = false) String city, Model model) {
+        log.debug("Received request to list venues: city='{}' (web UI)", city);
         model.addAttribute("venues",
                 city != null ? venueService.getVenuesByCity(city) : venueService.getAllVenues());
         model.addAttribute("cityFilter", city);
@@ -28,6 +31,7 @@ public class WebVenueController {
 
     @GetMapping("/{id}")
     public String view(@PathVariable Long id, Model model) {
+        log.debug("Received request to view venue id={} (web UI)", id);
         model.addAttribute("venue", venueService.getVenueById(id));
         return "venues/view";
     }
@@ -35,6 +39,7 @@ public class WebVenueController {
     @GetMapping("/new")
     @PreAuthorize("hasRole('ADMIN')")
     public String newForm(Model model) {
+        log.debug("Received request for new venue form (web UI)");
         model.addAttribute("venue", new VenueDto());
         return "venues/form";
     }
@@ -43,6 +48,7 @@ public class WebVenueController {
     @PreAuthorize("hasRole('ADMIN')")
     public String create(@Valid @ModelAttribute("venue") VenueDto dto,
                          BindingResult result, RedirectAttributes redirectAttrs) {
+        log.debug("Received request to create venue name='{}' (web UI)", dto.getName());
         if (result.hasErrors()) {
             return "venues/form";
         }
@@ -54,6 +60,7 @@ public class WebVenueController {
     @GetMapping("/{id}/edit")
     @PreAuthorize("hasRole('ADMIN')")
     public String editForm(@PathVariable Long id, Model model) {
+        log.debug("Received request to edit venue id={} (web UI)", id);
         model.addAttribute("venue", venueService.getVenueById(id));
         return "venues/form";
     }
@@ -63,6 +70,7 @@ public class WebVenueController {
     public String update(@PathVariable Long id,
                          @Valid @ModelAttribute("venue") VenueDto dto,
                          BindingResult result, RedirectAttributes redirectAttrs) {
+        log.debug("Received request to update venue id={} (web UI)", id);
         if (result.hasErrors()) {
             return "venues/form";
         }
@@ -74,6 +82,7 @@ public class WebVenueController {
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasRole('ADMIN')")
     public String delete(@PathVariable Long id, RedirectAttributes redirectAttrs) {
+        log.debug("Received request to delete venue id={} (web UI)", id);
         venueService.deleteVenue(id);
         redirectAttrs.addFlashAttribute("successMessage", "Venue deleted.");
         return "redirect:/ui/venues";

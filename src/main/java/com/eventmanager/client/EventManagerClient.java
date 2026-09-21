@@ -104,16 +104,9 @@ public class EventManagerClient {
         return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
     }
 
-    public EventResponse reserveTickets(Long eventId, int count) {
-        TicketRequest request = new TicketRequest();
-        request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
-    }
-
-    public EventResponse releaseTickets(Long eventId, int count) {
-        TicketRequest request = new TicketRequest();
-        request.setCount(count);
-        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/release", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
+    /** Live count of AVAILABLE tickets for the event, computed by the server from Postgres — not a stored field. */
+    public Long getNumAvailableTickets(Long eventId) {
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/available/count", HttpMethod.GET, publicEntity(), Long.class).getBody();
     }
 
     public void deleteEvent(Long id) {
@@ -199,6 +192,53 @@ public class EventManagerClient {
 
     public void deletePerformer(Long id) {
         restTemplate.exchange(baseUrl + "/api/v1/performers/" + id, HttpMethod.DELETE, authEntity(null), Void.class);
+    }
+
+    // -------------------------------------------------------------------------
+    // Tickets — created and deleted only as a side effect of event create/delete;
+    // no external create/delete operation exists.
+    // -------------------------------------------------------------------------
+
+    public TicketResponse getTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id, HttpMethod.GET, publicEntity(), TicketResponse.class).getBody();
+    }
+
+    /** Paginated AVAILABLE tickets for an event; page is 0-based. */
+    public PagedResponse<TicketResponse> getAvailableTickets(Long eventId, int page, int size) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events/" + eventId + "/tickets/available")
+                .queryParam("page", page)
+                .queryParam("size", size)
+                .toUriString();
+        return restTemplate.exchange(url, HttpMethod.GET, publicEntity(),
+                new ParameterizedTypeReference<PagedResponse<TicketResponse>>() {}).getBody();
+    }
+
+    /** Paginated list of every ticket owned by the caller (requires {@link #login} or {@link #setToken} first). */
+    public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/tickets/me")
+                .queryParam("page", page)
+                .queryParam("size", size)
+                .toUriString();
+        return restTemplate.exchange(url, HttpMethod.GET, authEntity(null),
+                new ParameterizedTypeReference<PagedResponse<TicketResponse>>() {}).getBody();
+    }
+
+    public TicketResponse reserveTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/reserve", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    public TicketResponse releaseTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/release", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    public TicketResponse purchaseTicket(Long id, String userCredentials) {
+        PurchaseTicketRequest request = new PurchaseTicketRequest();
+        request.setUserCredentials(userCredentials);
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/purchase", HttpMethod.POST, authEntity(request), TicketResponse.class).getBody();
+    }
+
+    public TicketResponse cancelTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/cancel", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
     }
 
     // -------------------------------------------------------------------------

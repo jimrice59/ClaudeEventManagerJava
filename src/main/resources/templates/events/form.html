@@ -46,10 +46,11 @@
         </div>
       </div>
       <div class="col-md-3 mb-3">
-        <label for="ticketsAvailable" class="form-label">Tickets Available <span class="text-danger">*</span></label>
-        <input id="ticketsAvailable" type="number" min="0" th:field="*{ticketsAvailable}"
-               class="form-control" th:classappend="${#fields.hasErrors('ticketsAvailable')} ? 'is-invalid'">
-        <div class="invalid-feedback" th:errors="*{ticketsAvailable}"></div>
+        <label for="ticketsTotal" class="form-label">Tickets Total <span class="text-danger">*</span></label>
+        <input id="ticketsTotal" type="number" min="0" th:field="*{ticketsTotal}" th:readonly="${eventId != null}"
+               class="form-control" th:classappend="${#fields.hasErrors('ticketsTotal')} ? 'is-invalid'">
+        <div class="form-text" th:if="${eventId != null}">Fixed at creation — cannot be changed.</div>
+        <div class="invalid-feedback" th:errors="*{ticketsTotal}"></div>
       </div>
     </div>
 

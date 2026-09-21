@@ -5,12 +5,14 @@ import com.eventmanager.dto.EventRequest;
 import com.eventmanager.dto.EventResponse;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Event;
+import com.eventmanager.model.EventStatus;
 import com.eventmanager.model.Performer;
 import com.eventmanager.model.Venue;
 import com.eventmanager.repository.EventRepository;
 import com.eventmanager.repository.PerformerRepository;
 import com.eventmanager.repository.VenueRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -23,6 +25,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EventService {
@@ -33,41 +36,69 @@ public class EventService {
     private final VenueService venueService;
     private final PerformerService performerService;
     private final CassandraAsyncWriter cassandraAsyncWriter;
+    private final TicketService ticketService;
 
+    @Cacheable("allEvents")
     @Transactional(readOnly = true)
     public List<EventResponse> getAllEvents() {
-        return eventRepository.findAllWithDetails().stream()
+        log.debug("Fetching all events");
+        List<EventResponse> events = eventRepository.findAllWithDetails().stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+        log.debug("Found {} events", events.size());
+        return events;
     }
 
     @Cacheable(value = "events", key = "#id")
     @Transactional(readOnly = true)
     public EventResponse getEventById(Long id) {
+        log.debug("Fetching event with id={}", id);
         Event event = eventRepository.findByIdWithDetails(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
+                .orElseThrow(() -> {
+                    log.warn("Event not found with id={}", id);
+                    return new ResourceNotFoundException("Event", "id", id);
+                });
         return toResponse(event);
     }
 
+    @Cacheable(value = "eventsByVenue", key = "#venueId")
     @Transactional(readOnly = true)
     public List<EventResponse> getEventsByVenue(Long venueId) {
-        return eventRepository.findByVenueId(venueId).stream()
+        log.debug("Fetching events for venue id={}", venueId);
+        List<EventResponse> events = eventRepository.findByVenueId(venueId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+        log.debug("Found {} events for venue id={}", events.size(), venueId);
+        return events;
     }
 
     @Transactional(readOnly = true)
     public List<EventResponse> getEventsBetween(LocalDateTime start, LocalDateTime end) {
-        return eventRepository.findByEventDateBetween(start, end).stream()
+        log.debug("Fetching events between {} and {}", start, end);
+        List<EventResponse> events = eventRepository.findByEventDateBetween(start, end).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
+        log.debug("Found {} events between {} and {}", events.size(), start, end);
+        return events;
     }
 
     @CachePut(value = "events", key = "#result.id")
     @Transactional
     public EventResponse createEvent(EventRequest request) {
+        log.info("Creating event name='{}' venueId={}", request.getName(), request.getVenueId());
         Venue venue = venueRepository.findById(request.getVenueId())
-                .orElseThrow(() -> new ResourceNotFoundException("Venue", "id", request.getVenueId()));
+                .orElseThrow(() -> {
+                    log.warn("Venue not found with id={}", request.getVenueId());
+                    return new ResourceNotFoundException("Venue", "id", request.getVenueId());
+                });
+
+        if (request.getTicketsTotal() > venue.getCapacity()) {
+            log.warn("Rejected event creation: ticketsTotal ({}) exceeds venue capacity ({}) for venue id={}",
+                    request.getTicketsTotal(), venue.getCapacity(), venue.getId());
+            throw new IllegalArgumentException(
+                    "ticketsTotal (" + request.getTicketsTotal() + ") exceeds venue capacity ("
+                            + venue.getCapacity() + ")");
+        }
 
         Set<Performer> performers = resolvePerformers(request.getPerformerIds());
 
@@ -76,78 +107,91 @@ public class EventService {
                 .description(request.getDescription())
                 .eventDate(request.getEventDate())
                 .ticketPrice(request.getTicketPrice())
-                .ticketsAvailable(request.getTicketsAvailable())
+                .ticketsTotal(request.getTicketsTotal())
+                .status(EventStatus.AVAILABLE)
                 .venue(venue)
                 .performers(performers)
                 .build();
 
-        EventResponse saved = toResponse(eventRepository.save(event));
+        Event savedEvent = eventRepository.save(event);
+
+        // One AVAILABLE ticket per unit of the event's own ticketsTotal (validated above to be
+        // <= venue capacity, so a partial house doesn't over-issue tickets), synchronously, in this
+        // same transaction — not in Cassandra (tickets are only backed up there on event deletion).
+        ticketService.createAvailableTickets(savedEvent, savedEvent.getTicketsTotal());
+
+        EventResponse saved = toResponse(savedEvent);
         cassandraAsyncWriter.saveEvent(toCassandraEntity(saved));
+        log.info("Created event id={} name='{}'", saved.getId(), saved.getName());
         return saved;
     }
 
+    /** {@code ticketsTotal} is immutable (no setter on {@link Event}) — the request's value is ignored on update. */
     @CachePut(value = "events", key = "#id")
     @Transactional
     public EventResponse updateEvent(Long id, EventRequest request) {
+        log.info("Updating event id={}", id);
         Event event = eventRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
+                .orElseThrow(() -> {
+                    log.warn("Event not found with id={}", id);
+                    return new ResourceNotFoundException("Event", "id", id);
+                });
 
         Venue venue = venueRepository.findById(request.getVenueId())
-                .orElseThrow(() -> new ResourceNotFoundException("Venue", "id", request.getVenueId()));
+                .orElseThrow(() -> {
+                    log.warn("Venue not found with id={}", request.getVenueId());
+                    return new ResourceNotFoundException("Venue", "id", request.getVenueId());
+                });
 
         event.setName(request.getName());
         event.setDescription(request.getDescription());
         event.setEventDate(request.getEventDate());
         event.setTicketPrice(request.getTicketPrice());
-        event.setTicketsAvailable(request.getTicketsAvailable());
         event.setVenue(venue);
         event.setPerformers(resolvePerformers(request.getPerformerIds()));
 
         EventResponse updated = toResponse(eventRepository.save(event));
         cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
+        log.info("Updated event id={} name='{}'", updated.getId(), updated.getName());
         return updated;
     }
 
-    @CachePut(value = "events", key = "#id")
-    @Transactional
-    public EventResponse reserveTickets(Long id, int count) {
-        Event event = eventRepository.findByIdWithDetails(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
-        int available = event.getTicketsAvailable();
-        if (available - count < 0) {
-            throw new IllegalArgumentException(
-                    "Cannot reserve " + count + " tickets; only " + available + " available");
-        }
-        event.setTicketsAvailable(available - count);
-        EventResponse updated = toResponse(eventRepository.save(event));
-        cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
-        return updated;
+    /**
+     * Live count of AVAILABLE tickets for the event — queries Postgres (via
+     * {@link TicketService#getNumAvailableTickets}) rather than any stored counter, since
+     * {@code ticketsTotal} is a fixed capacity, not a live count.
+     */
+    @Transactional(readOnly = true)
+    public long getNumAvailableTickets(Long id) {
+        log.debug("Fetching available ticket count for event id={}", id);
+        return ticketService.getNumAvailableTickets(id);
     }
 
-    @CachePut(value = "events", key = "#id")
-    @Transactional
-    public EventResponse releaseTickets(Long id, int count) {
-        Event event = eventRepository.findByIdWithDetails(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Event", "id", id));
-        int capacity = event.getVenue().getCapacity();
-        if (event.getTicketsAvailable() + count > capacity) {
-            throw new IllegalArgumentException(
-                    "Cannot release " + count + " tickets; would exceed venue capacity of " + capacity);
-        }
-        event.setTicketsAvailable(event.getTicketsAvailable() + count);
-        EventResponse updated = toResponse(eventRepository.save(event));
-        cassandraAsyncWriter.saveEvent(toCassandraEntity(updated));
-        return updated;
-    }
-
+    /**
+     * Marks the event DELETING, backs up and deletes all of its tickets (and deletes the Postgres
+     * rows of any ticket operations logged against them — their Cassandra copies are left in
+     * place), then removes the event itself from Postgres. All one transaction: if any step
+     * fails, everything rolls back rather than leaving the event half-deleted. No
+     * CassandraAsyncWriter.deleteEvent call — the event's last-synced copy is deliberately left
+     * in Cassandra as an archive.
+     */
     @CacheEvict(value = "events", key = "#id")
     @Transactional
     public void deleteEvent(Long id) {
-        if (!eventRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Event", "id", id);
-        }
+        log.info("Deleting event id={}", id);
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.warn("Event not found with id={}", id);
+                    return new ResourceNotFoundException("Event", "id", id);
+                });
+
+        event.setStatus(EventStatus.DELETING);
+        eventRepository.save(event);
+
+        ticketService.backupAndDeleteAllForEvent(id);
+
         eventRepository.deleteById(id);
-        cassandraAsyncWriter.deleteEvent(id);
+        log.info("Deleted event id={}", id);
     }
 
     private CassandraEvent toCassandraEntity(EventResponse response) {
@@ -157,7 +201,7 @@ public class EventService {
                 .description(response.getDescription())
                 .eventDate(response.getEventDate())
                 .ticketPrice(response.getTicketPrice())
-                .ticketsAvailable(response.getTicketsAvailable())
+                .ticketsTotal(response.getTicketsTotal())
                 .venueId(response.getVenue().getId())
                 .createdAt(response.getCreatedAt())
                 .updatedAt(response.getUpdatedAt())
@@ -182,7 +226,8 @@ public class EventService {
                 .description(event.getDescription())
                 .eventDate(event.getEventDate())
                 .ticketPrice(event.getTicketPrice())
-                .ticketsAvailable(event.getTicketsAvailable())
+                .ticketsTotal(event.getTicketsTotal())
+                .status(event.getStatus())
                 .venue(venueService.toDto(event.getVenue()))
                 .performers(event.getPerformers().stream()
                         .map(performerService::toDto)

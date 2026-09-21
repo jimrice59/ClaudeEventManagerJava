@@ -1,5 +1,6 @@
 package com.eventmanager.dto;
 
+import com.eventmanager.model.EventStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -28,8 +29,10 @@ public class EventResponse implements Serializable {
     private LocalDateTime eventDate;
     @Schema(example = "99.99")
     private BigDecimal ticketPrice;
-    @Schema(description = "Remaining tickets available for purchase", example = "483")
-    private Integer ticketsAvailable;
+    @Schema(description = "Total number of tickets for the event, fixed at creation", example = "500")
+    private Integer ticketsTotal;
+    @Schema(description = "Event lifecycle status; AVAILABLE normally, DELETING while a delete is in progress")
+    private EventStatus status;
     @Schema(description = "Venue where the event is held")
     private VenueDto venue;
     @Schema(description = "Performers appearing at the event")

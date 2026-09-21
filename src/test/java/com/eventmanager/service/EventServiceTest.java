@@ -6,6 +6,7 @@ import com.eventmanager.dto.EventResponse;
 import com.eventmanager.dto.VenueDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.model.Event;
+import com.eventmanager.model.EventStatus;
 import com.eventmanager.model.Venue;
 import com.eventmanager.repository.EventRepository;
 import com.eventmanager.repository.PerformerRepository;
@@ -36,6 +37,7 @@ class EventServiceTest {
     @Mock private VenueService venueService;
     @Mock private PerformerService performerService;
     @Mock private CassandraAsyncWriter cassandraAsyncWriter;
+    @Mock private TicketService ticketService;
 
     private EventService eventService;
 
@@ -49,7 +51,7 @@ class EventServiceTest {
     void setUp() {
         eventService = new EventService(
                 eventRepository, venueRepository, performerRepository,
-                venueService, performerService, cassandraAsyncWriter);
+                venueService, performerService, cassandraAsyncWriter, ticketService);
 
         venue = Venue.builder()
                 .id(1L).name("Madison Square Garden").address("4 Pennsylvania Plaza")
@@ -65,7 +67,7 @@ class EventServiceTest {
                 .id(1L).name("Rock Concert").description("Epic show")
                 .eventDate(EVENT_DATE)
                 .ticketPrice(new BigDecimal("99.99"))
-                .ticketsAvailable(100)
+                .ticketsTotal(100)
                 .venue(venue)
                 .performers(new HashSet<>())
                 .build();
@@ -77,7 +79,7 @@ class EventServiceTest {
         r.setDescription("Epic show");
         r.setEventDate(EVENT_DATE);
         r.setTicketPrice(new BigDecimal("99.99"));
-        r.setTicketsAvailable(100);
+        r.setTicketsTotal(100);
         r.setVenueId(1L);
         r.setPerformerIds(Set.of());
         return r;
@@ -116,7 +118,7 @@ class EventServiceTest {
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getName()).isEqualTo("Rock Concert");
         assertThat(result.getTicketPrice()).isEqualByComparingTo("99.99");
-        assertThat(result.getTicketsAvailable()).isEqualTo(100);
+        assertThat(result.getTicketsTotal()).isEqualTo(100);
         assertThat(result.getVenue().getId()).isEqualTo(1L);
     }
 
@@ -177,8 +179,11 @@ class EventServiceTest {
 
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getName()).isEqualTo("Rock Concert");
+        assertThat(result.getStatus()).isEqualTo(EventStatus.AVAILABLE);
         verify(eventRepository).save(any(Event.class));
         verify(cassandraAsyncWriter).saveEvent(any(CassandraEvent.class));
+        // one ticket per unit of the event's own ticketsTotal (100), not venue capacity (20000)
+        verify(ticketService).createAvailableTickets(event, 100);
     }
 
     @Test
@@ -192,7 +197,21 @@ class EventServiceTest {
                 .hasMessageContaining("Venue")
                 .hasMessageContaining("99");
         verify(eventRepository, never()).save(any());
-        verifyNoInteractions(cassandraAsyncWriter);
+        verifyNoInteractions(cassandraAsyncWriter, ticketService);
+    }
+
+    @Test
+    void createEvent_throwsWhenTicketsTotalExceedsVenueCapacity() {
+        when(venueRepository.findById(1L)).thenReturn(Optional.of(venue)); // capacity 20000
+        EventRequest request = buildRequest();
+        request.setTicketsTotal(20001);
+
+        assertThatThrownBy(() -> eventService.createEvent(request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("20001")
+                .hasMessageContaining("20000");
+        verify(eventRepository, never()).save(any());
+        verifyNoInteractions(cassandraAsyncWriter, ticketService);
     }
 
     @Test
@@ -207,6 +226,7 @@ class EventServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("performer");
         verify(eventRepository, never()).save(any());
+        verifyNoInteractions(ticketService);
     }
 
     // --- updateEvent ---
@@ -216,11 +236,10 @@ class EventServiceTest {
         Event updated = Event.builder()
                 .id(1L).name("Rock Concert Deluxe").description("Even more epic")
                 .eventDate(EVENT_DATE).ticketPrice(new BigDecimal("149.99"))
-                .ticketsAvailable(50).venue(venue).performers(new HashSet<>()).build();
+                .ticketsTotal(100).venue(venue).performers(new HashSet<>()).build();
         EventRequest request = buildRequest();
         request.setName("Rock Concert Deluxe");
         request.setTicketPrice(new BigDecimal("149.99"));
-        request.setTicketsAvailable(50);
 
         when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
         when(venueRepository.findById(1L)).thenReturn(Optional.of(venue));
@@ -231,7 +250,8 @@ class EventServiceTest {
 
         assertThat(result.getName()).isEqualTo("Rock Concert Deluxe");
         assertThat(result.getTicketPrice()).isEqualByComparingTo("149.99");
-        assertThat(result.getTicketsAvailable()).isEqualTo(50);
+        // ticketsTotal is immutable — unaffected by the update, regardless of the request
+        assertThat(result.getTicketsTotal()).isEqualTo(100);
         verify(cassandraAsyncWriter).saveEvent(any(CassandraEvent.class));
     }
 
@@ -262,75 +282,21 @@ class EventServiceTest {
         verify(eventRepository, never()).save(any());
     }
 
-    // --- reserveTickets ---
+    // --- getNumAvailableTickets ---
 
     @Test
-    void reserveTickets_decrementsTicketsAvailable() {
-        when(eventRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(event));
-        when(eventRepository.save(event)).thenReturn(event);
-        when(venueService.toDto(venue)).thenReturn(venueDto);
+    void getNumAvailableTickets_delegatesToTicketService() {
+        when(ticketService.getNumAvailableTickets(1L)).thenReturn(42L);
 
-        EventResponse result = eventService.reserveTickets(1L, 10);
-
-        assertThat(result.getTicketsAvailable()).isEqualTo(90);
-        verify(cassandraAsyncWriter).saveEvent(any(CassandraEvent.class));
+        assertThat(eventService.getNumAvailableTickets(1L)).isEqualTo(42L);
     }
 
     @Test
-    void reserveTickets_throwsWhenInsufficientTickets() {
-        event.setTicketsAvailable(5);
-        when(eventRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(event));
+    void getNumAvailableTickets_propagatesNotFoundFromTicketService() {
+        when(ticketService.getNumAvailableTickets(99L))
+                .thenThrow(new ResourceNotFoundException("Event", "id", 99L));
 
-        assertThatThrownBy(() -> eventService.reserveTickets(1L, 10))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("5 available");
-        verify(eventRepository, never()).save(any());
-        verifyNoInteractions(cassandraAsyncWriter);
-    }
-
-    @Test
-    void reserveTickets_throwsWhenEventNotFound() {
-        when(eventRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> eventService.reserveTickets(99L, 1))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Event")
-                .hasMessageContaining("99");
-    }
-
-    // --- releaseTickets ---
-
-    @Test
-    void releaseTickets_incrementsTicketsAvailable() {
-        event.setTicketsAvailable(90);  // 90/20000 available; releasing 5 → 95
-        when(eventRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(event));
-        when(eventRepository.save(event)).thenReturn(event);
-        when(venueService.toDto(venue)).thenReturn(venueDto);
-
-        EventResponse result = eventService.releaseTickets(1L, 5);
-
-        assertThat(result.getTicketsAvailable()).isEqualTo(95);
-        verify(cassandraAsyncWriter).saveEvent(any(CassandraEvent.class));
-    }
-
-    @Test
-    void releaseTickets_throwsWhenWouldExceedVenueCapacity() {
-        // venue capacity is 20000; releasing 1 from 20000 would exceed it
-        event.setTicketsAvailable(20000);
-        when(eventRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(event));
-
-        assertThatThrownBy(() -> eventService.releaseTickets(1L, 1))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("venue capacity");
-        verify(eventRepository, never()).save(any());
-        verifyNoInteractions(cassandraAsyncWriter);
-    }
-
-    @Test
-    void releaseTickets_throwsWhenEventNotFound() {
-        when(eventRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> eventService.releaseTickets(99L, 1))
+        assertThatThrownBy(() -> eventService.getNumAvailableTickets(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Event")
                 .hasMessageContaining("99");
@@ -339,24 +305,28 @@ class EventServiceTest {
     // --- deleteEvent ---
 
     @Test
-    void deleteEvent_deletesFromPostgresAndSchedulesCassandraDelete() {
-        when(eventRepository.existsById(1L)).thenReturn(true);
+    void deleteEvent_marksDeletingBacksUpTicketsAndDeletesFromPostgresOnly() {
+        when(eventRepository.findById(1L)).thenReturn(Optional.of(event));
 
         eventService.deleteEvent(1L);
 
+        assertThat(event.getStatus()).isEqualTo(EventStatus.DELETING);
+        verify(eventRepository).save(event);
+        verify(ticketService).backupAndDeleteAllForEvent(1L);
         verify(eventRepository).deleteById(1L);
-        verify(cassandraAsyncWriter).deleteEvent(1L);
+        // Cassandra copy is deliberately left in place — no delete call
+        verifyNoInteractions(cassandraAsyncWriter);
     }
 
     @Test
     void deleteEvent_throwsWhenNotFound() {
-        when(eventRepository.existsById(99L)).thenReturn(false);
+        when(eventRepository.findById(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> eventService.deleteEvent(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Event")
                 .hasMessageContaining("99");
         verify(eventRepository, never()).deleteById(any());
-        verifyNoInteractions(cassandraAsyncWriter);
+        verifyNoInteractions(cassandraAsyncWriter, ticketService);
     }
 }

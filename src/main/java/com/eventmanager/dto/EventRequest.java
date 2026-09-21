@@ -37,8 +37,8 @@ public class EventRequest {
 
     @NotNull
     @Min(0)
-    @Schema(description = "Number of tickets initially available (≥ 0)", example = "500")
-    private Integer ticketsAvailable;
+    @Schema(description = "Total number of tickets for the event (≥ 0). Fixed at creation — cannot be changed by update.", example = "500")
+    private Integer ticketsTotal;
 
     @NotNull
     @Schema(description = "ID of the venue where the event is held", example = "1")

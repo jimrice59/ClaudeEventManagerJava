@@ -10,6 +10,7 @@
 <div th:replace="~{fragments/nav :: nav}"></div>
 <div class="container">
   <div th:if="${successMessage}" class="alert alert-success" th:text="${successMessage}"></div>
+  <div th:if="${errorMessage}" class="alert alert-danger" th:text="${errorMessage}"></div>
 
   <div class="mb-3">
     <a th:href="@{/ui/events}" class="text-decoration-none">&larr; All Events</a>
@@ -34,8 +35,12 @@
           <p th:text="'$' + ${event.ticketPrice}"></p>
         </div>
         <div class="col-md-3">
-          <h6 class="text-uppercase text-muted small">Tickets Available</h6>
-          <p th:text="${event.ticketsAvailable}"></p>
+          <h6 class="text-uppercase text-muted small">Tickets Total</h6>
+          <p th:text="${event.ticketsTotal}"></p>
+        </div>
+        <div class="col-md-3">
+          <h6 class="text-uppercase text-muted small">Available Now</h6>
+          <p th:text="${numAvailableTickets}"></p>
         </div>
       </div>
 
@@ -60,6 +65,39 @@
             onsubmit="return confirm('Delete this event?')">
         <button type="submit" class="btn btn-danger">Delete</button>
       </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm mt-4">
+    <div class="card-header">Available Tickets</div>
+    <div class="card-body">
+      <p class="text-muted small" th:if="${#lists.isEmpty(availableTickets.content)}">
+        No tickets currently available.
+      </p>
+      <ul class="list-group list-group-flush mb-3" th:unless="${#lists.isEmpty(availableTickets.content)}">
+        <li class="list-group-item d-flex justify-content-between align-items-center"
+            th:each="ticket : ${availableTickets.content}">
+          <span th:text="'Ticket #' + ${ticket.id}"></span>
+          <form sec:authorize="isAuthenticated()" th:action="@{/ui/tickets/{id}/reserve(id=${ticket.id})}" method="post" class="d-inline">
+            <input type="hidden" name="eventId" th:value="${event.id}">
+            <button type="submit" class="btn btn-sm btn-outline-primary">Reserve</button>
+          </form>
+          <a sec:authorize="!isAuthenticated()" th:href="@{/ui/login}" class="btn btn-sm btn-outline-primary">Log in to reserve</a>
+        </li>
+      </ul>
+      <nav th:unless="${#lists.isEmpty(availableTickets.content)}">
+        <ul class="pagination pagination-sm mb-0">
+          <li class="page-item" th:classappend="${availableTickets.page == 0} ? 'disabled'">
+            <a class="page-link" th:href="@{/ui/events/{id}(id=${event.id}, page=${availableTickets.page - 1}, size=${availableTickets.size})}">Previous</a>
+          </li>
+          <li class="page-item disabled">
+            <span class="page-link" th:text="'Page ' + (${availableTickets.page} + 1) + ' of ' + ${#numbers.formatInteger(availableTickets.totalPages == 0 ? 1 : availableTickets.totalPages, 1)}"></span>
+          </li>
+          <li class="page-item" th:classappend="${availableTickets.last} ? 'disabled'">
+            <a class="page-link" th:href="@{/ui/events/{id}(id=${event.id}, page=${availableTickets.page + 1}, size=${availableTickets.size})}">Next</a>
+          </li>
+        </ul>
+      </nav>
     </div>
   </div>
 </div>

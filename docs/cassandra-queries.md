@@ -50,7 +50,7 @@ DESCRIBE TABLE performers;
 | `description` | text | |
 | `event_date` | timestamp | |
 | `ticket_price` | decimal | |
-| `tickets_available` | int | |
+| `tickets_total` | int | |
 | `venue_id` | bigint | FK to Postgres venues — no join support in Cassandra |
 | `created_at` | timestamp | |
 | `updated_at` | timestamp | |
@@ -81,7 +81,7 @@ SELECT * FROM events;
 SELECT * FROM events WHERE id = 1;
 
 -- selected columns only
-SELECT id, name, event_date, tickets_available FROM events;
+SELECT id, name, event_date, tickets_total FROM events;
 
 -- count rows
 SELECT COUNT(*) FROM events;

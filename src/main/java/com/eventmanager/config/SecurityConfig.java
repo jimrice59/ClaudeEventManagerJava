@@ -116,6 +116,11 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/events/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/venues/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/v1/performers/**").permitAll()
+                // More specific than the permitAll rule below, so it wins for this one path —
+                // GET /api/v1/tickets/{id} is public, but /me needs a real 401 (not a 403 from
+                // @PreAuthorize) when no token is present at all.
+                .requestMatchers(HttpMethod.GET, "/api/v1/tickets/me").authenticated()
+                .requestMatchers(HttpMethod.GET, "/api/v1/tickets/**").permitAll()
                 .requestMatchers("/actuator/health/**", "/actuator/prometheus").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

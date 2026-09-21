@@ -31,8 +31,8 @@ public class CassandraEvent {
     @Column("ticket_price")
     private BigDecimal ticketPrice;
 
-    @Column("tickets_available")
-    private Integer ticketsAvailable;
+    @Column("tickets_total")
+    private Integer ticketsTotal;
 
     @Column("venue_id")
     private Long venueId;

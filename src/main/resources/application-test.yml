@@ -23,3 +23,8 @@ spring:
 jwt:
   secret: dGVzdFNlY3JldEtleUZvclRlc3RpbmdQdXJwb3Nlc09ubHkxMjM0NTY3ODk=
   expiration-ms: 86400000
+
+# Disabled in tests: no Redis broker is running under the test profile (H2 + spring.cache.type:
+# none cover JPA/caching, but RateLimitFilter would otherwise hit Redis on every MockMvc request).
+rate-limit:
+  enabled: false

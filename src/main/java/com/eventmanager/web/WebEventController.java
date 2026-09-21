@@ -5,9 +5,11 @@ import com.eventmanager.dto.EventResponse;
 import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.service.EventService;
 import com.eventmanager.service.PerformerService;
+import com.eventmanager.service.TicketService;
 import com.eventmanager.service.VenueService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.propertyeditors.CustomDateEditor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Controller;
@@ -24,6 +26,7 @@ import java.time.format.DateTimeParseException;
 import java.util.HashSet;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Controller
 @RequestMapping("/ui/events")
 @RequiredArgsConstructor
@@ -34,6 +37,7 @@ public class WebEventController {
     private final EventService eventService;
     private final VenueService venueService;
     private final PerformerService performerService;
+    private final TicketService ticketService;
 
     @InitBinder
     public void initBinder(WebDataBinder binder) {
@@ -61,19 +65,27 @@ public class WebEventController {
 
     @GetMapping
     public String list(Model model) {
+        log.debug("Received request to list events (web UI)");
         model.addAttribute("events", eventService.getAllEvents());
         return "events/list";
     }
 
     @GetMapping("/{id}")
-    public String view(@PathVariable Long id, Model model) {
+    public String view(@PathVariable Long id,
+                       @RequestParam(defaultValue = "0") int page,
+                       @RequestParam(defaultValue = "10") int size,
+                       Model model) {
+        log.debug("Received request to view event id={} (web UI)", id);
         model.addAttribute("event", eventService.getEventById(id));
+        model.addAttribute("numAvailableTickets", eventService.getNumAvailableTickets(id));
+        model.addAttribute("availableTickets", ticketService.getAvailableTickets(id, page, size));
         return "events/view";
     }
 
     @GetMapping("/new")
     @PreAuthorize("hasRole('ADMIN')")
     public String newForm(Model model) {
+        log.debug("Received request for new event form (web UI)");
         model.addAttribute("event", new EventRequest());
         populateFormModel(model);
         return "events/form";
@@ -84,6 +96,7 @@ public class WebEventController {
     public String create(@Valid @ModelAttribute("event") EventRequest request,
                          BindingResult result, Model model,
                          RedirectAttributes redirectAttrs) {
+        log.debug("Received request to create event name='{}' (web UI)", request.getName());
         if (result.hasErrors()) {
             populateFormModel(model);
             return "events/form";
@@ -99,6 +112,7 @@ public class WebEventController {
     @GetMapping("/{id}/edit")
     @PreAuthorize("hasRole('ADMIN')")
     public String editForm(@PathVariable Long id, Model model) {
+        log.debug("Received request to edit event id={} (web UI)", id);
         model.addAttribute("event", toRequest(eventService.getEventById(id)));
         model.addAttribute("eventId", id);
         populateFormModel(model);
@@ -111,6 +125,7 @@ public class WebEventController {
                          @Valid @ModelAttribute("event") EventRequest request,
                          BindingResult result, Model model,
                          RedirectAttributes redirectAttrs) {
+        log.debug("Received request to update event id={} (web UI)", id);
         if (result.hasErrors()) {
             model.addAttribute("eventId", id);
             populateFormModel(model);
@@ -127,6 +142,7 @@ public class WebEventController {
     @PostMapping("/{id}/delete")
     @PreAuthorize("hasRole('ADMIN')")
     public String delete(@PathVariable Long id, RedirectAttributes redirectAttrs) {
+        log.debug("Received request to delete event id={} (web UI)", id);
         eventService.deleteEvent(id);
         redirectAttrs.addFlashAttribute("successMessage", "Event deleted.");
         return "redirect:/ui/events";
@@ -143,7 +159,7 @@ public class WebEventController {
         r.setDescription(event.getDescription());
         r.setEventDate(event.getEventDate());
         r.setTicketPrice(event.getTicketPrice());
-        r.setTicketsAvailable(event.getTicketsAvailable());
+        r.setTicketsTotal(event.getTicketsTotal());
         r.setVenueId(event.getVenue() != null ? event.getVenue().getId() : null);
         r.setPerformerIds(event.getPerformers() != null
                 ? event.getPerformers().stream().map(PerformerDto::getId).collect(Collectors.toSet())

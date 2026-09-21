@@ -39,10 +39,17 @@ public class Event {
     @Column(nullable = false, precision = 7, scale = 2)
     private BigDecimal ticketPrice;
 
+    @Setter(AccessLevel.NONE)
     @NotNull
     @Min(0)
     @Column(nullable = false)
-    private Integer ticketsAvailable;
+    private Integer ticketsTotal;
+
+    @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private EventStatus status = EventStatus.AVAILABLE;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "venue_id", nullable = false)

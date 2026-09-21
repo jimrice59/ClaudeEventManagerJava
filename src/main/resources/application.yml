@@ -59,6 +59,14 @@ jwt:
   secret: ${JWT_SECRET:3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b}
   expiration-ms: ${JWT_EXPIRATION_MS:86400000}
 
+rate-limit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  window-duration: ${RATE_LIMIT_WINDOW_DURATION:1s}
+  max-requests: ${RATE_LIMIT_MAX_REQUESTS:1000}
+
+edge-metrics:
+  enabled: ${EDGE_METRICS_ENABLED:true}
+
 oauth2:
   issuer: ${OAUTH2_ISSUER:http://localhost:8080}
 
@@ -84,6 +92,11 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
 
 info:
   app:
