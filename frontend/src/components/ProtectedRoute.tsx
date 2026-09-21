@@ -14,3 +14,14 @@ export function AdminRoute({ children }: { children: ReactNode }) {
   }
   return <>{children}</>;
 }
+
+/** Guards a route for any authenticated user (no role requirement) — e.g. "My Tickets". */
+export function RequireAuth({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+  return <>{children}</>;
+}

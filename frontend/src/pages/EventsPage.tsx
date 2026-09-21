@@ -108,7 +108,7 @@ export function EventsPage() {
               <p className="muted">{new Date(event.eventDate).toLocaleString()}</p>
               <p>{event.venue.name}</p>
               <p className="muted">
-                ${event.ticketPrice.toFixed(2)} &middot; {event.ticketsAvailable} tickets left
+                ${event.ticketPrice.toFixed(2)} &middot; {event.ticketsTotal} tickets total
               </p>
             </Link>
           ))}

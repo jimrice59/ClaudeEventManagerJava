@@ -23,7 +23,7 @@ export function EventFormPage() {
   const [description, setDescription] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [ticketPrice, setTicketPrice] = useState("");
-  const [ticketsAvailable, setTicketsAvailable] = useState("");
+  const [ticketsTotal, setTicketsTotal] = useState("");
   const [venueId, setVenueId] = useState("");
   const [performerIds, setPerformerIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function EventFormPage() {
         setDescription(event.description ?? "");
         setEventDate(toDateTimeLocal(event.eventDate));
         setTicketPrice(String(event.ticketPrice));
-        setTicketsAvailable(String(event.ticketsAvailable));
+        setTicketsTotal(String(event.ticketsTotal));
         setVenueId(String(event.venue.id));
         setPerformerIds(new Set(event.performers.map((p) => p.id).filter((pid): pid is number => pid !== null)));
       })
@@ -70,7 +70,7 @@ export function EventFormPage() {
       description: description || undefined,
       eventDate: eventDate.length === 16 ? `${eventDate}:00` : eventDate,
       ticketPrice: Number(ticketPrice),
-      ticketsAvailable: Number(ticketsAvailable),
+      ticketsTotal: Number(ticketsTotal),
       venueId: Number(venueId),
       performerIds: Array.from(performerIds),
     };
@@ -123,15 +123,17 @@ export function EventFormPage() {
           />
         </label>
         <label>
-          Tickets available
+          Tickets total
           <input
             type="number"
             min={0}
-            value={ticketsAvailable}
-            onChange={(e) => setTicketsAvailable(e.target.value)}
+            value={ticketsTotal}
+            onChange={(e) => setTicketsTotal(e.target.value)}
+            readOnly={isEdit}
             required
           />
         </label>
+        {isEdit && <p className="muted">Fixed at creation — cannot be changed.</p>}
         <label>
           Venue
           <select value={venueId} onChange={(e) => setVenueId(e.target.value)} required>

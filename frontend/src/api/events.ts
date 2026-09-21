@@ -25,12 +25,7 @@ export async function deleteEvent(id: number): Promise<void> {
   await apiClient.delete(`/events/${id}`);
 }
 
-export async function reserveTickets(id: number, count: number): Promise<EventResponse> {
-  const { data } = await apiClient.post<EventResponse>(`/events/${id}/tickets/reserve`, { count });
-  return data;
-}
-
-export async function releaseTickets(id: number, count: number): Promise<EventResponse> {
-  const { data } = await apiClient.post<EventResponse>(`/events/${id}/tickets/release`, { count });
+export async function getNumAvailableTickets(id: number): Promise<number> {
+  const { data } = await apiClient.get<number>(`/events/${id}/tickets/available/count`);
   return data;
 }

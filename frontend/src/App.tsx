@@ -1,6 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
-import { AdminRoute } from "./components/ProtectedRoute";
+import { AdminRoute, RequireAuth } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { EventsPage } from "./pages/EventsPage";
@@ -11,6 +11,7 @@ import { PerformerDetailPage } from "./pages/PerformerDetailPage";
 import { PerformerFormPage } from "./pages/PerformerFormPage";
 import { VenuesPage } from "./pages/VenuesPage";
 import { VenueFormPage } from "./pages/VenueFormPage";
+import { MyTicketsPage } from "./pages/MyTicketsPage";
 
 function App() {
   return (
@@ -57,6 +58,15 @@ function App() {
               <AdminRoute>
                 <PerformerFormPage />
               </AdminRoute>
+            }
+          />
+
+          <Route
+            path="/my-tickets"
+            element={
+              <RequireAuth>
+                <MyTicketsPage />
+              </RequireAuth>
             }
           />
 

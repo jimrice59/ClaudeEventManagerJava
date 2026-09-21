@@ -19,6 +19,7 @@ export function NavBar() {
         <Link to="/events">Events</Link>
         <Link to="/performers">Performers</Link>
         <Link to="/venues">Venues</Link>
+        {isAuthenticated && <Link to="/my-tickets">My Tickets</Link>}
       </div>
       <div className="nav-auth">
         {isAuthenticated ? (

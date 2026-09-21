@@ -44,7 +44,7 @@ export interface EventRequest {
   description?: string;
   eventDate: string; // ISO 8601, e.g. 2025-08-15T19:00:00
   ticketPrice: number;
-  ticketsAvailable: number;
+  ticketsTotal: number; // fixed at creation — ignored on update
   venueId: number;
   performerIds?: number[];
 }
@@ -55,15 +55,11 @@ export interface EventResponse {
   description?: string;
   eventDate: string;
   ticketPrice: number;
-  ticketsAvailable: number;
+  ticketsTotal: number; // fixed capacity; see getNumAvailableTickets for the live available count
   venue: VenueDto;
   performers: PerformerDto[];
   createdAt: string;
   updatedAt: string;
-}
-
-export interface TicketRequest {
-  count: number;
 }
 
 export interface VideoRequest {
@@ -74,6 +70,39 @@ export interface EventListFilters {
   venueId?: number;
   start?: string;
   end?: string;
+}
+
+export type TicketStatus = "AVAILABLE" | "RESERVED" | "SOLD";
+
+export interface PerformerSummary {
+  id: number;
+  name: string;
+}
+
+export interface TicketResponse {
+  id: number;
+  eventId: number;
+  eventName: string;
+  eventDate: string;
+  description?: string;
+  venueId: number;
+  venueName: string;
+  performers: PerformerSummary[];
+  status: TicketStatus;
+  userId: number | null;
+}
+
+export interface PurchaseTicketRequest {
+  userCredentials: string;
+}
+
+export interface PagedResponse<T> {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  last: boolean;
 }
 
 export interface ApiErrorBody {

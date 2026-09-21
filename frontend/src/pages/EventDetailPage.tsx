@@ -1,28 +1,44 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import * as eventsApi from "../api/events";
+import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useAuth } from "../context/AuthContext";
-import type { EventResponse } from "../types";
+import type { EventResponse, PagedResponse, TicketResponse } from "../types";
+
+const TICKETS_PAGE_SIZE = 10;
 
 export function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const eventId = Number(id);
   const navigate = useNavigate();
-  const { isAuthenticated, isAdmin } = useAuth();
+  const { isAdmin, isAuthenticated } = useAuth();
 
   const [event, setEvent] = useState<EventResponse | null>(null);
+  const [numAvailable, setNumAvailable] = useState<number | null>(null);
+  const [availableTickets, setAvailableTickets] = useState<PagedResponse<TicketResponse> | null>(null);
+  const [ticketsPage, setTicketsPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ticketCount, setTicketCount] = useState(1);
   const [actionPending, setActionPending] = useState(false);
+
+  async function loadTickets() {
+    setAvailableTickets(await ticketsApi.getAvailableTickets(eventId, ticketsPage, TICKETS_PAGE_SIZE));
+  }
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      setEvent(await eventsApi.getEvent(eventId));
+      const [eventData, availableCount] = await Promise.all([
+        eventsApi.getEvent(eventId),
+        eventsApi.getNumAvailableTickets(eventId),
+      ]);
+      setEvent(eventData);
+      setNumAvailable(availableCount);
+      await loadTickets();
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -33,33 +49,7 @@ export function EventDetailPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
-
-  async function handleReserve(evt: FormEvent) {
-    evt.preventDefault();
-    setActionPending(true);
-    setError(null);
-    try {
-      setEvent(await eventsApi.reserveTickets(eventId, ticketCount));
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setActionPending(false);
-    }
-  }
-
-  async function handleRelease(evt: FormEvent) {
-    evt.preventDefault();
-    setActionPending(true);
-    setError(null);
-    try {
-      setEvent(await eventsApi.releaseTickets(eventId, ticketCount));
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setActionPending(false);
-    }
-  }
+  }, [eventId, ticketsPage]);
 
   async function handleDelete() {
     if (!confirm("Delete this event? This cannot be undone.")) return;
@@ -70,6 +60,22 @@ export function EventDetailPage() {
       navigate("/events", { replace: true });
     } catch (err) {
       setError(extractErrorMessage(err));
+      setActionPending(false);
+    }
+  }
+
+  async function handleReserve(ticketId: number) {
+    setActionPending(true);
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      await ticketsApi.reserveTicket(ticketId);
+      setSuccessMessage("Ticket reserved! Find it under My Tickets to purchase or release it.");
+      setNumAvailable(await eventsApi.getNumAvailableTickets(eventId));
+      await loadTickets();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
       setActionPending(false);
     }
   }
@@ -94,6 +100,7 @@ export function EventDetailPage() {
       </div>
 
       <ErrorBanner message={error} />
+      {successMessage && <div className="success-banner">{successMessage}</div>}
 
       {event.description && <p>{event.description}</p>}
       <dl className="detail-grid">
@@ -105,8 +112,10 @@ export function EventDetailPage() {
         </dd>
         <dt>Ticket price</dt>
         <dd>${event.ticketPrice.toFixed(2)}</dd>
-        <dt>Tickets available</dt>
-        <dd>{event.ticketsAvailable}</dd>
+        <dt>Tickets total</dt>
+        <dd>{event.ticketsTotal}</dd>
+        <dt>Available now</dt>
+        <dd>{numAvailable ?? "—"}</dd>
         <dt>Performers</dt>
         <dd>
           {event.performers.length === 0
@@ -115,24 +124,47 @@ export function EventDetailPage() {
         </dd>
       </dl>
 
-      {isAuthenticated && (
-        <form className="ticket-form" onSubmit={handleReserve}>
-          <label>
-            Ticket count
-            <input
-              type="number"
-              min={1}
-              value={ticketCount}
-              onChange={(e) => setTicketCount(Number(e.target.value))}
-            />
-          </label>
-          <button type="submit" disabled={actionPending}>
-            Reserve
-          </button>
-          <button type="button" onClick={handleRelease} disabled={actionPending}>
-            Release
-          </button>
-        </form>
+      <h2>Available Tickets</h2>
+      {!availableTickets || availableTickets.content.length === 0 ? (
+        <p className="muted">No tickets currently available.</p>
+      ) : (
+        <>
+          <ul className="ticket-list">
+            {availableTickets.content.map((ticket) => (
+              <li key={ticket.id}>
+                <span>Ticket #{ticket.id}</span>
+                {isAuthenticated ? (
+                  <button onClick={() => handleReserve(ticket.id)} disabled={actionPending} className="button small">
+                    Reserve
+                  </button>
+                ) : (
+                  <Link to="/login" className="button small">
+                    Log in to reserve
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="pagination">
+            <button
+              onClick={() => setTicketsPage((p) => p - 1)}
+              disabled={ticketsPage === 0 || loading}
+              className="button small"
+            >
+              Previous
+            </button>
+            <span className="muted">
+              Page {availableTickets.page + 1} of {Math.max(availableTickets.totalPages, 1)}
+            </span>
+            <button
+              onClick={() => setTicketsPage((p) => p + 1)}
+              disabled={availableTickets.last || loading}
+              className="button small"
+            >
+              Next
+            </button>
+          </div>
+        </>
       )}
     </div>
   );
