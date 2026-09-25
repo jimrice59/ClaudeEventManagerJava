@@ -56,6 +56,12 @@ point; adding `spring-boot-starter-web`, `-data-jpa`, `-data-redis`, `-security`
 wiring, Redis caching, security filter chains, and `/actuator/*` endpoints — all with a handful of
 `application.yml` properties instead of hand-written configuration classes for each one.
 
+### What is a Single Page Application (SPA)?
+
+SPA stands for Single-Page Application — a web app (like the React frontend in this project) that
+loads once and updates the page dynamically via JavaScript/API calls, rather than requesting a full
+new HTML page from the server on every navigation (which is what the Thymeleaf UI does instead).
+
 ### Notable Engineering Decisions
 
 - **Virtual threads** instead of a reactive stack for Postgres concurrency; **`@Async` +
