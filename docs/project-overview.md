@@ -1,28 +1,5 @@
 # Event Manager — Project Overview
 
-## What is a Spring Boot application?
-
-Spring Boot is an opinionated layer on top of the core Spring Framework that makes it fast to build
-a standalone, production-ready Java application without the heavy XML/manual-bean-wiring
-configuration that plain Spring used to require. Three things define it:
-
-- **Auto-configuration** — it inspects what's on the classpath and wires up sensible defaults
-  automatically. Add `spring-boot-starter-data-jpa` and it configures a `DataSource`,
-  `EntityManagerFactory`, and transaction manager for you; add `spring-boot-starter-web` and it sets
-  up an embedded servlet container.
-- **Embedded server** — the app is a runnable JAR with an embedded Tomcat (or Netty, Jetty) baked
-  in, not a WAR you deploy into an external app server. `java -jar app.jar` and it's serving
-  requests.
-- **Starters** — curated dependency bundles (`spring-boot-starter-security`, `-data-redis`,
-  `-actuator`, etc.) that pull in a coherent, tested set of libraries for one concern instead of you
-  hand-picking versions.
-
-This repo is a concrete example: `@SpringBootApplication` on `EventManagerApplication` is the entry
-point; adding `spring-boot-starter-web`, `-data-jpa`, `-data-redis`, `-security`, `-actuator`, and
-`-oauth2-authorization-server` to `pom.xml` is what gives it its embedded Tomcat, JPA/Postgres
-wiring, Redis caching, security filter chains, and `/actuator/*` endpoints — all with a handful of
-`application.yml` properties instead of hand-written configuration classes for each one.
-
 ## Project Summary
 
 **What it is:** A full-stack event ticketing platform — browse events/venues/performers, reserve
@@ -55,6 +32,29 @@ as a demonstration/learning project touching a broad slice of a modern Java back
   always derived from the caller's JWT, never accepted from the client.
 - Two parallel frontends (React SPA and Thymeleaf) hit the same backend through different auth
   models (JWT vs. session), sharing no code.
+
+### What is a Spring Boot application?
+
+Spring Boot is an opinionated layer on top of the core Spring Framework that makes it fast to build
+a standalone, production-ready Java application without the heavy XML/manual-bean-wiring
+configuration that plain Spring used to require. Three things define it:
+
+- **Auto-configuration** — it inspects what's on the classpath and wires up sensible defaults
+  automatically. Add `spring-boot-starter-data-jpa` and it configures a `DataSource`,
+  `EntityManagerFactory`, and transaction manager for you; add `spring-boot-starter-web` and it sets
+  up an embedded servlet container.
+- **Embedded server** — the app is a runnable JAR with an embedded Tomcat (or Netty, Jetty) baked
+  in, not a WAR you deploy into an external app server. `java -jar app.jar` and it's serving
+  requests.
+- **Starters** — curated dependency bundles (`spring-boot-starter-security`, `-data-redis`,
+  `-actuator`, etc.) that pull in a coherent, tested set of libraries for one concern instead of you
+  hand-picking versions.
+
+This repo is a concrete example: `@SpringBootApplication` on `EventManagerApplication` is the entry
+point; adding `spring-boot-starter-web`, `-data-jpa`, `-data-redis`, `-security`, `-actuator`, and
+`-oauth2-authorization-server` to `pom.xml` is what gives it its embedded Tomcat, JPA/Postgres
+wiring, Redis caching, security filter chains, and `/actuator/*` endpoints — all with a handful of
+`application.yml` properties instead of hand-written configuration classes for each one.
 
 ### Notable Engineering Decisions
 
