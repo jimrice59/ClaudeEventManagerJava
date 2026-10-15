@@ -57,7 +57,10 @@ spec:
         - name: event-manager
           image: event-manager:latest
           ports:
-            - containerPort: 8080
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 9091
           envFrom:
             - configMapRef:
                 name: event-manager-config
@@ -94,6 +97,10 @@ spec:
   selector:
     app: event-manager
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 8080
+    - name: grpc
+      port: 9091
+      targetPort: 9091
   type: LoadBalancer
