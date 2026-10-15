@@ -45,7 +45,7 @@ java -jar target/event-manager-1.0.0.jar
 docker build -t event-manager .
 
 # Run against the compose stack (dependencies on host)
-docker run -p 8080:8080 \
+docker run -p 8080:8080 -p 9091:9091 \
   -e DB_HOST=host.docker.internal \
   -e REDIS_HOST=host.docker.internal \
   -e CASSANDRA_HOST=host.docker.internal \
