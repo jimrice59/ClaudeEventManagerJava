@@ -73,6 +73,86 @@ Either Ingress controller means replacing `event-manager-service`'s `type: LoadB
 `ClusterIP` Service fronted by an Ingress/IngressRoute resource — not done in `k8s/deployment.yml`
 yet; this section is the design discussion to work from when that change is made.
 
+## TLS termination at the L7 load balancer
+
+Any of the gRPC-aware (or general-purpose L7) options above has to **terminate** the client's TLS
+connection — hold the certificate/key, perform the handshake itself — to do genuine L7 work: path
+routing, header inspection, or gRPC-aware per-RPC balancing all require reading the decrypted
+HTTP/2 frames. The one exception is **TLS passthrough**, routing on the unencrypted SNI field in
+the ClientHello without decrypting anything — that's really L4 behavior (hostname routing only,
+no path routing, no gRPC method inspection, no per-RPC balancing), so it defeats the point of
+picking a gRPC-aware proxy in the first place.
+
+Neither side of this application has any TLS configured today — the embedded Tomcat (REST/web UI)
+and `GrpcServerLifecycle`'s plain `NettyServerBuilder` (gRPC) both run in cleartext, relying on
+`docker-compose.yml`'s Traefik profile and `k8s/deployment.yml` to be reached over a trusted
+network rather than terminating TLS themselves anywhere. That's directly relevant to the
+re-encryption question below.
+
+**Traefik:** TLS is entrypoint-level config, separate from routing. Define a `websecure` entrypoint
+and a cert resolver:
+
+```
+--entrypoints.websecure.address=:443
+--entrypoints.websecure.http.tls=true
+--certificatesresolvers.myresolver.acme.email=you@example.com
+--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+--certificatesresolvers.myresolver.acme.tlschallenge=true
+```
+
+then a router opts into it — compare to today's `docker-compose.yml`, which only defines the
+plaintext `web` entrypoint on `:80`:
+
+```
+- "traefik.http.routers.event-manager.entrypoints=websecure"
+- "traefik.http.routers.event-manager.tls=true"
+- "traefik.http.routers.event-manager.tls.certresolver=myresolver"
+```
+
+In Kubernetes (the Traefik Ingress Controller's `IngressRoute` CRD), the cert instead comes from a
+`Secret` referenced under the route's `tls.secretName` — typically populated by cert-manager.
+Either way, the backend leg is a separate setting:
+`traefik.http.services.<name>.loadbalancer.server.scheme` — `h2c` for cleartext HTTP/2 to the pod,
+or `https` (with a `serversTransport` for cert trust) to re-encrypt.
+
+**NGINX Ingress Controller:** TLS is the standard Kubernetes Ingress `tls:` stanza, pointing at a
+`Secret` (again, usually issued by cert-manager via a `ClusterIssuer` annotation):
+
+```yaml
+spec:
+  tls:
+    - hosts: [api.example.com]
+      secretName: event-manager-tls
+  rules:
+    - host: api.example.com
+      ...
+```
+
+The gRPC backend leg is controlled by the `nginx.ingress.kubernetes.io/backend-protocol`
+annotation: `"GRPC"` (cleartext h2c to the pod) vs. `"GRPCS"` (re-encrypted TLS to the pod). NGINX
+Ingress also supports `ssl-passthrough` (the exception case above) if raw passthrough is ever
+needed instead of termination — at the cost of losing gRPC-aware per-RPC balancing.
+
+**Does the load balancer re-encrypt to the backend?** Not always — it's a policy choice, and both
+are common:
+
+- **Terminate, then cleartext internally (h2c / plain HTTP)** — the proxy decrypts, then talks
+  plaintext to pods over the cluster's internal network. This is the simpler default (Traefik's
+  `scheme: h2c`, NGINX's `GRPC` backend-protocol) and relies on that internal network being inside
+  the trust boundary (a private VPC/cluster network not reachable externally) — which matches this
+  app's current state exactly, since neither its Tomcat nor its gRPC server has TLS support to
+  re-encrypt *to* without adding it.
+- **Terminate, then re-encrypt (TLS bridging)** — a second, separate TLS handshake to the backend,
+  usually with an internal-CA-issued cert the backend presents. This is the "encrypt everywhere" /
+  zero-trust pattern, and it's what a service mesh (Linkerd/Istio mTLS) gives you automatically
+  without hand-configuring each hop. It requires the backend to actually terminate TLS itself —
+  for this app, that would mean adding `server.ssl.*` config to Spring Boot's embedded Tomcat and
+  `.useTransportSecurity(cert, key)` to the gRPC `NettyServerBuilder`, neither of which exists yet.
+
+For this project as it stands, cleartext-internally is the lower-friction path (zero app changes);
+re-encryption is the more defensible answer if there's a compliance requirement for
+encryption-in-transit everywhere, but it's extra work on both the proxy and the app.
+
 ## Recommendations for this project
 
 | Context | Recommendation | Reason |
