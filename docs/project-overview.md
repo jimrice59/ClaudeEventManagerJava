@@ -18,6 +18,7 @@ as a demonstration/learning project touching a broad slice of a modern Java back
 | Auth | Custom JWT (HS256) **and** a self-hosted OAuth 2.0 Authorization Server (RS256) |
 | Web UI | Thymeleaf + Bootstrap 5 (session-based) |
 | SPA | React 19 + TypeScript + Vite (JWT-based, separate from the Thymeleaf UI) |
+| RPC API | gRPC server (plain grpc-java, port 9091) — a second, binary-wire-format transport for the same domain API as REST |
 | Observability | Micrometer + Prometheus + Grafana |
 | Docs | springdoc-openapi / Swagger UI |
 | Deployment | Docker Compose (dev), Kubernetes manifests, optional Traefik reverse proxy |
@@ -32,6 +33,16 @@ as a demonstration/learning project touching a broad slice of a modern Java back
   always derived from the caller's JWT, never accepted from the client.
 - Two parallel frontends (React SPA and Thymeleaf) hit the same backend through different auth
   models (JWT vs. session), sharing no code.
+- The backend itself is reachable over **three transports** — REST (`/api/v1/**`), the Thymeleaf
+  web UI (`/ui/**`), and a **gRPC server** on its own port (9091) — all three calling the same
+  `EventService`/`TicketService`/`VenueService`/`PerformerService` beans, so no business logic is
+  duplicated per transport. gRPC covers the full CRUD surface for events/venues/performers plus
+  every ticket transition, reusing the same custom JWT (sent as `authorization: Bearer <token>`
+  metadata instead of an HTTP header) and the same `ROLE_ADMIN` gate as REST, just enforced by a
+  hand-written interceptor/helper (`JwtServerInterceptor`, `GrpcCallSupport`) instead of Spring
+  Security filters — see docs/grpc-api-support.md. This is unrelated to — and in the opposite
+  direction from — this app's own use of gRPC as a *client* to an external payment service during
+  ticket purchase (see payment-service-grpc.md).
 
 ### What is a Spring Boot application?
 
@@ -85,7 +96,8 @@ new HTML page from the server on every navigation (which is what the Thymeleaf U
 - **`docs/design-document.md`** — the same material as one consolidated, human-readable reference
   with a table of contents.
 - **`docs/`** — supplementary docs (Kafka guides, Cassandra queries, load-balancer options, UX
-  review findings, the Redis-reservation-holds design memo, and cross-project patterns/lessons).
+  review findings, the Redis-reservation-holds design memo, cross-project patterns/lessons, and
+  `grpc-api-support.md`/`grpc-api-exposure.md` covering this app's own gRPC API server).
 
 ### Current State
 
