@@ -247,6 +247,7 @@ public class TicketService {
         Ticket ticket = findTicketOrThrow(id);
         if (outcome.status() == PaymentOutcomeStatus.APPROVED) {
             ticket.setStatus(TicketStatus.SOLD);
+            ticket.setDatePurchased(LocalDateTime.now());
             Ticket saved = ticketRepository.save(ticket);
             recordOperation(saved, TicketOperationType.PURCHASE, userId, paymentRequestId, outcome);
             log.info("Purchased ticket id={} for user id={}, confirmationId={}", saved.getId(), userId, outcome.confirmationId());
@@ -459,10 +460,13 @@ public class TicketService {
 
     /**
      * Called synchronously from EventService.deleteEvent, inside the same transaction, before the
-     * event row itself is removed. Backs up every ticket for the event to Cassandra, then deletes
-     * them all from Postgres. The backup write is synchronous and un-caught on purpose: if it
-     * throws, the whole deleteEvent transaction rolls back rather than risk deleting tickets with
-     * no archived copy. Also deletes the event's {@link TicketOperation} rows from Postgres —
+     * event row itself is removed. Backs up only the event's SOLD (purchased) tickets to
+     * Cassandra — AVAILABLE/RESERVED/PAYING tickets never had a completed sale worth archiving and
+     * are ignored by the sweep — then deletes *all* of the event's tickets from Postgres
+     * regardless of status, since every ticket row must be gone before the event row itself can be
+     * removed (FK constraint). The backup write is synchronous and un-caught on purpose: if it
+     * throws, the whole deleteEvent transaction rolls back rather than risk deleting a sold ticket
+     * with no archived copy. Also deletes the event's {@link TicketOperation} rows from Postgres —
      * unlike tickets, these are never backed up here (they were already dual-written to Cassandra
      * when each was recorded, the same as events/performers) and their Cassandra copies are
      * deliberately left in place as an archive, exactly like a deleted event's own last-synced
@@ -473,18 +477,20 @@ public class TicketService {
     public void backupAndDeleteAllForEvent(Long eventId) {
         List<Ticket> tickets = ticketRepository.findByEventId(eventId);
         if (!tickets.isEmpty()) {
-            backupToCassandra(tickets);
+            List<Ticket> soldTickets = tickets.stream().filter(t -> t.getStatus() == TicketStatus.SOLD).toList();
+            backupToCassandra(soldTickets);
             ticketRepository.deleteAll(tickets);
-            log.info("Backed up and deleted {} tickets for event id={}", tickets.size(), eventId);
+            log.info("Backed up {} sold ticket(s) and deleted {} total ticket(s) for event id={}",
+                    soldTickets.size(), tickets.size(), eventId);
         }
         ticketOperationRepository.deleteByEventId(eventId);
     }
 
-    private void backupToCassandra(List<Ticket> tickets) {
-        if (ticketCassandraRepository == null) {
+    private void backupToCassandra(List<Ticket> soldTickets) {
+        if (ticketCassandraRepository == null || soldTickets.isEmpty()) {
             return;
         }
-        List<CassandraTicket> backups = tickets.stream().map(this::toCassandraEntity).toList();
+        List<CassandraTicket> backups = soldTickets.stream().map(this::toCassandraEntity).toList();
         ticketCassandraRepository.saveAll(backups);
     }
 
@@ -495,6 +501,7 @@ public class TicketService {
                 .description(ticket.getDescription())
                 .status(ticket.getStatus().name())
                 .userId(ticket.getUserId())
+                .datePurchased(ticket.getDatePurchased())
                 .build();
     }
 
@@ -518,6 +525,7 @@ public class TicketService {
                 .status(ticket.getStatus())
                 .userId(ticket.getUserId())
                 .paymentRequestId(ticket.getPaymentRequestId())
+                .datePurchased(ticket.getDatePurchased())
                 .build();
     }
 }

@@ -391,6 +391,7 @@ class TicketServiceTest {
         assertThat(result.getStatus()).isEqualTo(TicketStatus.SOLD);
         assertThat(result.getUserId()).isEqualTo(42L);
         assertThat(result.getPaymentRequestId()).isNotBlank();
+        assertThat(result.getDatePurchased()).isNotNull();
 
         // beginPayment (RESERVED→PAYING) and completePayment (PAYING→SOLD) each save once. (Both
         // calls mutate and re-save the same mocked Ticket instance, so an ArgumentCaptor can't
@@ -632,22 +633,40 @@ class TicketServiceTest {
     // --- backupAndDeleteAllForEvent ---
 
     @Test
-    void backupAndDeleteAllForEvent_backsUpToCassandraThenDeletesFromPostgres() {
+    void backupAndDeleteAllForEvent_backsUpOnlySoldTicketsThenDeletesAllFromPostgres() {
+        ReflectionTestUtils.setField(ticketService, "ticketCassandraRepository", ticketCassandraRepository);
+        LocalDateTime purchasedAt = LocalDateTime.of(2025, 8, 1, 12, 0);
+        Ticket soldTicket = Ticket.builder().id(2L).event(event).status(TicketStatus.SOLD)
+                .userId(42L).datePurchased(purchasedAt).build();
+        when(ticketRepository.findByEventId(1L)).thenReturn(List.of(ticket, soldTicket));
+
+        ticketService.backupAndDeleteAllForEvent(1L);
+
+        // Only the SOLD ticket is archived — AVAILABLE/RESERVED/PAYING tickets are ignored by the sweep.
+        ArgumentCaptor<List<CassandraTicket>> captor = ArgumentCaptor.forClass(List.class);
+        verify(ticketCassandraRepository).saveAll(captor.capture());
+        assertThat(captor.getValue()).hasSize(1);
+        CassandraTicket backedUp = captor.getValue().get(0);
+        assertThat(backedUp.getId()).isEqualTo(2L);
+        assertThat(backedUp.getEventId()).isEqualTo(1L);
+        assertThat(backedUp.getStatus()).isEqualTo("SOLD");
+        assertThat(backedUp.getDatePurchased()).isEqualTo(purchasedAt);
+        // But every ticket, regardless of status, is still deleted from Postgres.
+        verify(ticketRepository).deleteAll(List.of(ticket, soldTicket));
+        // Ticket operations are removed from Postgres too, but never from Cassandra — see
+        // TicketService#backupAndDeleteAllForEvent.
+        verify(ticketOperationRepository).deleteByEventId(1L);
+    }
+
+    @Test
+    void backupAndDeleteAllForEvent_skipsCassandraEntirelyWhenNoTicketsAreSold() {
         ReflectionTestUtils.setField(ticketService, "ticketCassandraRepository", ticketCassandraRepository);
         when(ticketRepository.findByEventId(1L)).thenReturn(List.of(ticket));
 
         ticketService.backupAndDeleteAllForEvent(1L);
 
-        ArgumentCaptor<List<CassandraTicket>> captor = ArgumentCaptor.forClass(List.class);
-        verify(ticketCassandraRepository).saveAll(captor.capture());
-        assertThat(captor.getValue()).hasSize(1);
-        CassandraTicket backedUp = captor.getValue().get(0);
-        assertThat(backedUp.getId()).isEqualTo(1L);
-        assertThat(backedUp.getEventId()).isEqualTo(1L);
-        assertThat(backedUp.getStatus()).isEqualTo("AVAILABLE");
+        verifyNoInteractions(ticketCassandraRepository);
         verify(ticketRepository).deleteAll(List.of(ticket));
-        // Ticket operations are removed from Postgres too, but never from Cassandra — see
-        // TicketService#backupAndDeleteAllForEvent.
         verify(ticketOperationRepository).deleteByEventId(1L);
     }
 
@@ -655,11 +674,12 @@ class TicketServiceTest {
     void backupAndDeleteAllForEvent_skipsCassandraWhenRepositoryAbsent() {
         // ticketCassandraRepository left null, as it is in production when Cassandra
         // autoconfiguration is excluded (test profile)
-        when(ticketRepository.findByEventId(1L)).thenReturn(List.of(ticket));
+        Ticket soldTicket = Ticket.builder().id(2L).event(event).status(TicketStatus.SOLD).userId(42L).build();
+        when(ticketRepository.findByEventId(1L)).thenReturn(List.of(soldTicket));
 
         ticketService.backupAndDeleteAllForEvent(1L);
 
-        verify(ticketRepository).deleteAll(List.of(ticket));
+        verify(ticketRepository).deleteAll(List.of(soldTicket));
         verify(ticketOperationRepository).deleteByEventId(1L);
     }
 

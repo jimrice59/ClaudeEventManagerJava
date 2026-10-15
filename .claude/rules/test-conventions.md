@@ -18,7 +18,7 @@ paths:
 | `VenueServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 11 | Pure unit tests, no Spring context |
 | `EventServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 18 | Pure unit tests, no Spring context |
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
-| `TicketServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 34 | Pure unit tests, no Spring context — see ticket-status-state-machine.md |
+| `TicketServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 35 | Pure unit tests, no Spring context — see ticket-status-state-machine.md |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 | `RateLimiterTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Pure unit tests, no Spring context, no Redis — see rate-limiting.md |
 | `EdgeMetricsConfigTest` | Plain JUnit | 3 | Pure unit tests, no Spring context, no real `MeterRegistry` — see monitoring.md |

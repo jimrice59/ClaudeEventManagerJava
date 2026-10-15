@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "tickets")
 @Getter
@@ -50,4 +52,13 @@ public class Ticket {
      */
     @Column(name = "payment_request_id")
     private String paymentRequestId;
+
+    /**
+     * Stamped by {@code TicketService.completePayment} when a purchase attempt's payment-service
+     * call is APPROVED (RESERVED/PAYING → SOLD); null otherwise (including after a cancellation
+     * returns the ticket to AVAILABLE — this is a historical record of the sale, not cleared like
+     * {@code userId} is). See ticket-status-state-machine.md.
+     */
+    @Column(name = "date_purchased")
+    private LocalDateTime datePurchased;
 }

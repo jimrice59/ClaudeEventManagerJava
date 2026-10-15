@@ -97,8 +97,9 @@ delete-RPC responses. Each `*GrpcService` generates an `ImplBase` to extend and 
   `PurchaseTicket`'s gRPC call blocks the handling thread for up to the payment service's
   configured deadline (120s default), the same trade-off the REST endpoint already accepts.
   Translates `TicketResponse`↔`TicketMessage` (`optional int64 user_id`/
-  `optional string payment_request_id` for genuinely-nullable fields — only set on the builder
-  when non-null).
+  `optional string payment_request_id`/`optional string date_purchased` for genuinely-nullable
+  fields — only set on the builder when non-null; `date_purchased`, like `event_date`, travels as
+  a plain ISO-8601 string).
 - `VenueGrpcServiceImpl` — `GetVenue`/`ListVenues` (optional `city` filter) (public);
   `CreateVenue`/`UpdateVenue`/`DeleteVenue` (`runAdmin`, validated). Translates
   `VenueDto`↔`VenueMessage` (`optional string zip_code` for the one genuinely-nullable `VenueDto`

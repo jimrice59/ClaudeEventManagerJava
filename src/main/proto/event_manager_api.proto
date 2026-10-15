@@ -145,6 +145,7 @@ message TicketMessage {
   string status = 9;  // TicketStatus name: AVAILABLE, RESERVED, PAYING, or SOLD
   optional int64 user_id = 10;
   optional string payment_request_id = 11;
+  optional string date_purchased = 12;  // set only once a purchase has been APPROVED; never cleared by cancellation
 }
 
 message PageQuery {

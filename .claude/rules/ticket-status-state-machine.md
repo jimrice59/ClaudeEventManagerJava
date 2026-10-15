@@ -33,7 +33,7 @@ AVAILABLE◄─────────────────┘ releaseTicket
 | → RESERVED | `reserveTicket(id)` | status is `AVAILABLE` | none — anyone can reserve an open ticket | `userId` = caller, status = `RESERVED` |
 | RESERVED → AVAILABLE | `releaseTicket(id)` | status is `RESERVED` | caller's id equals ticket's `userId` | `userId` = `null`, status = `AVAILABLE` |
 | RESERVED → PAYING | `purchaseTicket(id, paymentToken, paymentRequestId)` — Txn 1 (`beginPayment`) | status is `RESERVED`, **else 409 if already `PAYING`** (a concurrent attempt is in flight — see below) | caller's id equals ticket's `userId` | status = `PAYING`; `paymentRequestId` stamped (caller-supplied or generated) |
-| PAYING → SOLD / AVAILABLE | same call, Txn 2 (`completePayment`), after the gRPC call returns | n/a (status is already `PAYING` from Txn 1) | n/a | APPROVED → `SOLD`, records `PURCHASE`; DECLINED → `AVAILABLE` + `userId=null`, records `PAYMENT_DECLINED`; call failure (timeout/connection error) → **ticket stays `PAYING`**, no operation recorded, throws `PaymentServiceUnavailableException` (502) |
+| PAYING → SOLD / AVAILABLE | same call, Txn 2 (`completePayment`), after the gRPC call returns | n/a (status is already `PAYING` from Txn 1) | n/a | APPROVED → `SOLD`, `datePurchased` stamped to now, records `PURCHASE`; DECLINED → `AVAILABLE` + `userId=null` (`datePurchased` untouched), records `PAYMENT_DECLINED`; call failure (timeout/connection error) → **ticket stays `PAYING`**, no operation recorded, throws `PaymentServiceUnavailableException` (502) |
 | SOLD → AVAILABLE | `cancelTicket(id)` | status is `SOLD` | caller's id equals ticket's `userId` | `userId` = `null`, status = `AVAILABLE`; records a `CANCEL` `TicketOperation` |
 
 - **The PAYING→409 check is distinct from the generic "not RESERVED" 400**: `beginPayment` checks
@@ -57,6 +57,10 @@ AVAILABLE◄─────────────────┘ releaseTicket
   through `beginPayment` at least once, its most recent `paymentRequestId` stays on the row
   (visible in `TicketResponse`) regardless of how that attempt resolved, for support/reconciliation
   lookups. It has no bearing on which transitions are valid.
+- **`datePurchased` is stamped only on an APPROVED outcome** (the RESERVED/PAYING→`SOLD` edge) and,
+  like `paymentRequestId`, is never cleared afterward — including by `cancelTicket`, which returns
+  the ticket to `AVAILABLE` but leaves `datePurchased` as a record of the most recent sale. A ticket
+  that has never been sold has `datePurchased = null`.
 - **`purchaseTicket`/`cancelTicket` write an audit row** (`TicketOperation` — `PURCHASE`,
   `PAYMENT_DECLINED`, or `CANCEL`) — the only durable record that a ticket was ever sold, declined,
   or cancelled, since the ticket row itself loses most of that history once `userId` is cleared.
@@ -81,11 +85,20 @@ AVAILABLE◄─────────────────┘ releaseTicket
 
 **`TicketServiceTest`** covers everything the table above describes, plus the pre-existing
 `getTicketById`/`getMyTickets`/`getNumAvailableTickets`/`getAvailableTickets`/`reserveTicket`/
-`releaseTicket`/`createAvailableTickets`/`backupAndDeleteAllForEvent` coverage unchanged from
-before this feature. For `purchaseTicket`: `purchaseTicket_succeedsWhenReservedBySameUserAndPaymentApproved`
+`releaseTicket`/`createAvailableTickets` coverage unchanged from before this feature.
+`backupAndDeleteAllForEvent` is covered by `backupAndDeleteAllForEvent_backsUpOnlySoldTicketsThenDeletesAllFromPostgres`
+(a mixed-status fixture — one `AVAILABLE`, one `SOLD` with a stamped `datePurchased` — asserting only
+the `SOLD` ticket reaches `ticketCassandraRepository.saveAll(...)`, with `datePurchased` carried onto
+the `CassandraTicket`, while `ticketRepository.deleteAll(...)` still receives both),
+`backupAndDeleteAllForEvent_skipsCassandraEntirelyWhenNoTicketsAreSold` (an all-`AVAILABLE` fixture →
+`verifyNoInteractions(ticketCassandraRepository)`, but Postgres deletion still happens),
+`backupAndDeleteAllForEvent_skipsCassandraWhenRepositoryAbsent` (repository left `null`, as in the
+test profile), and `backupAndDeleteAllForEvent_doesNothingToTicketsWhenEventHasNoneButStillDeletesOperations`.
+For `purchaseTicket`: `purchaseTicket_succeedsWhenReservedBySameUserAndPaymentApproved`
 (mocks `PaymentServiceClient.purchaseTicket(...)` to return an `APPROVED` `PaymentOutcome`; asserts
-two `ticketRepository.save` calls — one from each saga transaction — and that the recorded
-`TicketOperation` carries the real confirmation id and idempotency token), `purchaseTicket_usesClientSuppliedPaymentRequestId`,
+two `ticketRepository.save` calls — one from each saga transaction — that `datePurchased` is stamped
+on the result, and that the recorded `TicketOperation` carries the real confirmation id and
+idempotency token), `purchaseTicket_usesClientSuppliedPaymentRequestId`,
 `purchaseTicket_movesBackToAvailableWhenPaymentDeclined` (`DECLINED` outcome → `AVAILABLE`, records
 `PAYMENT_DECLINED`), `purchaseTicket_throwsPaymentServiceUnavailableAndLeavesTicketPayingWhenCallFails`
 (`ERROR` outcome → only one `save` call total, ticket stays `PAYING`, no `TicketOperation`

@@ -54,4 +54,8 @@ public class TicketResponse implements Serializable {
             + "null if it has never had one. While status is PAYING, this is the id to use when querying "
             + "the payment service for status.", example = "7b4d6e2a-9c1f-4a3b-8e5d-1f2a3b4c5d6e")
     private String paymentRequestId;
+
+    @Schema(description = "When the most recent approved purchase of this ticket completed; "
+            + "null if it has never been sold. Not cleared on cancellation.")
+    private LocalDateTime datePurchased;
 }

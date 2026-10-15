@@ -108,6 +108,9 @@ public class TicketGrpcServiceImpl extends TicketGrpcServiceGrpc.TicketGrpcServi
         if (ticket.getPaymentRequestId() != null) {
             builder.setPaymentRequestId(ticket.getPaymentRequestId());
         }
+        if (ticket.getDatePurchased() != null) {
+            builder.setDatePurchased(ticket.getDatePurchased().toString());
+        }
         return builder.build();
     }
 
