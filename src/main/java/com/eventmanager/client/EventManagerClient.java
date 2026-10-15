@@ -100,7 +100,8 @@ public class EventManagerClient {
         return restTemplate.exchange(baseUrl + "/api/v1/events", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
     }
 
-    public EventResponse updateEvent(Long id, EventRequest request) {
+    /** Unlike {@link #createEvent}, this takes no ticketsTotal — it's fixed at creation and the update payload doesn't offer it. */
+    public EventResponse updateEvent(Long id, UpdateEventRequest request) {
         return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
     }
 

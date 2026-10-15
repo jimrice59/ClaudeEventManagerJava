@@ -72,7 +72,7 @@ HTTP Request
 | GET | `/api/v1/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
 | GET | `/api/v1/events/{id}` | public | cached |
 | POST | `/api/v1/events` | ADMIN | 400 if `ticketsTotal` exceeds venue capacity; sets `status=AVAILABLE`; synchronously creates one AVAILABLE ticket per unit of `ticketsTotal` (Postgres only, not Cassandra); Cassandra dual-write of the event itself |
-| PUT | `/api/v1/events/{id}` | ADMIN | `ticketsTotal` in the body is ignored — fixed at creation, immutable; Cassandra dual-write |
+| PUT | `/api/v1/events/{id}` | ADMIN | body: `UpdateEventRequest` — unlike `POST`'s `EventRequest`, has no `ticketsTotal` field at all (fixed at creation, immutable); Cassandra dual-write |
 | DELETE | `/api/v1/events/{id}` | ADMIN | sets `status=DELETING`; backs up all of the event's tickets to Cassandra then deletes them from Postgres; also deletes the event's `TicketOperation` rows from Postgres only (their Cassandra copies are left in place); deletes the event from Postgres only — its last-synced Cassandra copy is left in place |
 | GET | `/api/v1/events/{id}/tickets/available` | public | paginated (`?page=&size=`, 0-based, size 1–100, default 0/20); tickets with status `AVAILABLE`, ordered by ticket id |
 | GET | `/api/v1/events/{id}/tickets/available/count` | public | live count of tickets with status `AVAILABLE`, computed by querying Postgres directly (`TicketRepository.countByEventIdAndStatus`) — not a stored counter |

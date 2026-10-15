@@ -40,7 +40,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getEventsBetween(start, end)` | GET | `/api/v1/events?start=&end=` | public |
 | `getEvent(id)` | GET | `/api/v1/events/{id}` | public |
 | `createEvent(EventRequest)` | POST | `/api/v1/events` | ADMIN |
-| `updateEvent(id, EventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN |
+| `updateEvent(id, UpdateEventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN |
 | `getNumAvailableTickets(id)` | GET | `/api/v1/events/{id}/tickets/available/count` | public |
 | `deleteEvent(id)` | DELETE | `/api/v1/events/{id}` | ADMIN |
 | `getVenues()` | GET | `/api/v1/venues` | public |

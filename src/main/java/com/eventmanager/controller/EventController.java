@@ -4,6 +4,7 @@ import com.eventmanager.dto.EventRequest;
 import com.eventmanager.dto.EventResponse;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.dto.UpdateEventRequest;
 import com.eventmanager.service.EventService;
 import com.eventmanager.service.TicketService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -107,8 +108,9 @@ public class EventController {
     }
 
     @Operation(summary = "Update event", security = @SecurityRequirement(name = "bearerAuth"),
-               description = "Requires ROLE_ADMIN. ticketsTotal in the request body is ignored — it is fixed at " +
-                             "creation and cannot be changed.")
+               description = "Requires ROLE_ADMIN. Unlike the create payload, this has no ticketsTotal field — " +
+                             "it is fixed at creation and cannot be changed, so the update payload doesn't offer " +
+                             "a field whose value would be silently ignored.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Event updated",
                     content = @Content(schema = @Schema(implementation = EventResponse.class))),
@@ -122,9 +124,30 @@ public class EventController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<EventResponse> updateEvent(
             @Parameter(description = "Event ID") @PathVariable Long id,
-            @Valid @RequestBody EventRequest request) {
+            @Valid @RequestBody UpdateEventRequest request) {
         log.debug("Received request to update event id={}", id);
-        return ResponseEntity.ok(eventService.updateEvent(id, request));
+        return ResponseEntity.ok(eventService.updateEvent(id, toEventRequest(request)));
+    }
+
+    /**
+     * Maps the public {@link UpdateEventRequest} (no {@code ticketsTotal}) to the internal
+     * {@link EventRequest} {@code EventService.updateEvent} still accepts. The placeholder
+     * {@code ticketsTotal(0)} is never read — {@code EventService.updateEvent} ignores that field
+     * unconditionally — and no Bean Validation re-runs on this manually-built object (validation
+     * already ran on {@code request} itself via {@code @Valid} above), so the placeholder doesn't
+     * need to satisfy {@code EventRequest.ticketsTotal}'s own {@code @Min(0)} for any real reason;
+     * {@code 0} is just a tidy, harmless default.
+     */
+    private EventRequest toEventRequest(UpdateEventRequest request) {
+        EventRequest eventRequest = new EventRequest();
+        eventRequest.setName(request.getName());
+        eventRequest.setDescription(request.getDescription());
+        eventRequest.setEventDate(request.getEventDate());
+        eventRequest.setTicketPrice(request.getTicketPrice());
+        eventRequest.setTicketsTotal(0);
+        eventRequest.setVenueId(request.getVenueId());
+        eventRequest.setPerformerIds(request.getPerformerIds());
+        return eventRequest;
     }
 
     @Operation(summary = "Get the live count of available tickets for an event",
