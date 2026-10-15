@@ -106,16 +106,27 @@ public class TicketController {
 
     @Operation(summary = "Purchase a reserved ticket", security = @SecurityRequirement(name = "bearerAuth"),
                description = "Requires authentication (any role). The ticket must currently be RESERVED and " +
-                             "the caller must be the same user who reserved it (from the JWT); moves it to SOLD " +
-                             "and records a PURCHASE ticket operation.")
+                             "the caller must be the same user who reserved it (from the JWT). Charges " +
+                             "request.paymentToken (a tokenized payment-method reference, never raw card data) " +
+                             "via the payment service over gRPC: moves the ticket to PAYING first, then to SOLD " +
+                             "on approval (recording a PURCHASE ticket operation) or back to AVAILABLE on decline " +
+                             "(recording a PAYMENT_DECLINED ticket operation). Optionally accepts " +
+                             "request.paymentRequestId as an idempotency key for the payment-service call; if " +
+                             "omitted, one is generated. The response's paymentRequestId can be used later to " +
+                             "query the payment service for status.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Ticket purchased",
+            @ApiResponse(responseCode = "200", description = "Ticket purchased or payment declined (check status)",
                     content = @Content(schema = @Schema(implementation = TicketResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation error, or the ticket is not currently RESERVED",
                     content = @Content),
             @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content),
             @ApiResponse(responseCode = "403", description = "Ticket was reserved by a different user", content = @Content),
-            @ApiResponse(responseCode = "404", description = "Ticket not found", content = @Content)
+            @ApiResponse(responseCode = "404", description = "Ticket not found", content = @Content),
+            @ApiResponse(responseCode = "409", description = "A purchase attempt is already in progress for this ticket (status is PAYING)",
+                    content = @Content),
+            @ApiResponse(responseCode = "502", description = "The payment service call itself failed (timeout or connection error); "
+                    + "the ticket remains PAYING — retry a status query using the paymentRequestId rather than purchasing again",
+                    content = @Content)
     })
     @PostMapping("/{id}/purchase")
     @PreAuthorize("isAuthenticated()")
@@ -123,7 +134,7 @@ public class TicketController {
             @Parameter(description = "Ticket ID") @PathVariable Long id,
             @Valid @RequestBody PurchaseTicketRequest request) {
         log.debug("Received request to purchase ticket id={}", id);
-        return ResponseEntity.ok(ticketService.purchaseTicket(id, request.getUserCredentials()));
+        return ResponseEntity.ok(ticketService.purchaseTicket(id, request.getPaymentToken(), request.getPaymentRequestId()));
     }
 
     @Operation(summary = "Cancel a purchased ticket", security = @SecurityRequirement(name = "bearerAuth"),

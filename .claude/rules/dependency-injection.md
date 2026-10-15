@@ -21,10 +21,19 @@ Every service, controller, and security class declares dependencies as `private 
 | `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository`, `VenueService`, `PerformerService`, `CassandraAsyncWriter`, `TicketService` |
 | `VenueService` | `VenueRepository` |
 | `PerformerService` | `PerformerRepository`, `VideoRepository`, `CassandraAsyncWriter`, `PerformerVideoEventPublisher` |
-| `TicketService` | `TicketRepository`, `EventRepository`, `UserRepository`, `TicketOperationRepository`, `CassandraAsyncWriter` |
+| `TicketService` | `TicketRepository`, `EventRepository`, `UserRepository`, `TicketOperationRepository`, `CassandraAsyncWriter`, `PaymentServiceClient`, `PaymentCacheService`, `PlatformTransactionManager`, `CacheManager` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
+
+`TicketService`'s `PlatformTransactionManager` and `CacheManager` are framework-provided beans
+(Spring Boot auto-configures both — the former for JPA, the latter as the `RedisCacheManager` from
+`RedisConfig`), injected here rather than relied upon implicitly: `purchaseTicket` builds its own
+`TransactionTemplate` from the injected `PlatformTransactionManager` to run two short transactions
+with a slow gRPC call in between (see io-and-transactions.md and payment-service-grpc.md), and
+calls `cacheManager.getCache("tickets").evict(id)` directly instead of relying on `@CachePut`,
+since the method that would need the annotation doesn't go through the Spring AOP proxy for its
+inner steps (self-invocation).
 
 **Field injection via `@Autowired(required = false)` — optional infrastructure beans**
 `CassandraAsyncWriter` holds three optional repositories (`PerformerCassandraRepository`, `EventCassandraRepository`, `TicketOperationCassandraRepository`), all field-injected with `required = false`. `PerformerVideoEventPublisher` holds an optional `KafkaTemplate<String, VideoEvent>`, also field-injected with `required = false`. `TicketService` holds an optional `TicketCassandraRepository` the same way — field-injected directly rather than routed through `CassandraAsyncWriter`, since the ticket backup write has to be synchronous (see cassandra-dual-write.md). Spring skips injection when the beans are absent (test profile excludes Cassandra and Kafka autoconfiguration). Each method short-circuits with a null check. Constructor injection cannot express optionality without an `Optional<>` wrapper.

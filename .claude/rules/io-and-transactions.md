@@ -41,3 +41,16 @@ All service methods are explicitly annotated — no implicit transaction boundar
 - `AuthService.login` is `@Transactional(readOnly = true)`: it makes two DB reads (one via `authenticationManager.authenticate` → `UserDetailsServiceImpl`, one direct `userRepository.findByUsername`) and wrapping them ensures a single connection
 
 Cassandra writes in `PerformerService` and `EventService` happen after the JPA call and are outside the Postgres transaction boundary. A Cassandra failure after Postgres commits is not rolled back — accepted limitation of dual-store without a distributed transaction coordinator.
+
+**One deliberate exception to "every service method is `@Transactional`-annotated"**:
+`TicketService.purchaseTicket` is a saga spanning a slow external call (a gRPC call to the payment
+service, with a 120-second deadline) and is *not* `@Transactional` itself — wrapping the whole
+thing in one transaction would pin a HikariCP connection and a row lock on the ticket for the
+call's full duration. Instead it builds a `TransactionTemplate` from an injected
+`PlatformTransactionManager` and runs two short transactions programmatically
+(`beginPayment`/`completePayment`), with no transaction open at all while the gRPC call is in
+flight. Those two methods are plain, unannotated private methods invoked via self-invocation from
+inside the `TransactionTemplate` lambda — `@Transactional` would silently do nothing there anyway,
+since self-invocation bypasses the Spring AOP proxy the annotation relies on, the same reason
+`@Async` requires a different bean (see above). See payment-service-grpc.md and
+docs/payment-service-integration.md, "Why two transactions instead of one".

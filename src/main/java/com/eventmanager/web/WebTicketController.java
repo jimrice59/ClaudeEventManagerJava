@@ -1,5 +1,7 @@
 package com.eventmanager.web;
 
+import com.eventmanager.exception.PaymentServiceUnavailableException;
+import com.eventmanager.exception.TicketPaymentInProgressException;
 import com.eventmanager.service.TicketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,8 +16,10 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
  * same as the REST API's TicketController, ownership (not role) is what restricts
  * release/purchase/cancel, enforced inside TicketService. Business-rule failures
  * (IllegalArgumentException for a stale/invalid status, AccessDeniedException for a ticket owned
- * by someone else) are caught here and surfaced as a flash "errorMessage" rather than propagating
- * to GlobalExceptionHandler, which would otherwise render a raw JSON body instead of an HTML page.
+ * by someone else, TicketPaymentInProgressException for a concurrent purchase attempt, and
+ * PaymentServiceUnavailableException if the payment-service call itself fails) are caught here
+ * and surfaced as a flash "errorMessage" rather than propagating to GlobalExceptionHandler, which
+ * would otherwise render a raw JSON body instead of an HTML page.
  */
 @Slf4j
 @Controller
@@ -62,15 +66,20 @@ public class WebTicketController {
     }
 
     @PostMapping("/{id}/purchase")
-    public String purchase(@PathVariable Long id, @RequestParam String userCredentials,
+    public String purchase(@PathVariable Long id, @RequestParam String paymentToken,
                            RedirectAttributes redirectAttrs) {
         log.debug("Received request to purchase ticket id={} (web UI)", id);
         try {
-            ticketService.purchaseTicket(id, userCredentials);
+            // No paymentRequestId from this form — TicketService generates one.
+            ticketService.purchaseTicket(id, paymentToken, null);
             redirectAttrs.addFlashAttribute("successMessage", "Ticket purchased!");
-        } catch (IllegalArgumentException | AccessDeniedException ex) {
+        } catch (IllegalArgumentException | AccessDeniedException | TicketPaymentInProgressException ex) {
             log.warn("Purchase failed for ticket id={}: {}", id, ex.getMessage());
             redirectAttrs.addFlashAttribute("errorMessage", ex.getMessage());
+        } catch (PaymentServiceUnavailableException ex) {
+            log.error("Purchase could not be confirmed for ticket id={}: {}", id, ex.getMessage());
+            redirectAttrs.addFlashAttribute("errorMessage",
+                    "We couldn't confirm your payment in time. Your ticket is held — check back shortly before trying again.");
         }
         return "redirect:/ui/tickets/me";
     }

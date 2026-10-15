@@ -6,13 +6,19 @@ import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.ResourceNotFoundException;
+import com.eventmanager.exception.TicketPaymentInProgressException;
 import com.eventmanager.model.Event;
 import com.eventmanager.model.Ticket;
 import com.eventmanager.model.TicketOperation;
 import com.eventmanager.model.TicketOperationType;
 import com.eventmanager.model.TicketStatus;
 import com.eventmanager.model.User;
+import com.eventmanager.payment.PaymentCacheService;
+import com.eventmanager.payment.PaymentOutcome;
+import com.eventmanager.payment.PaymentOutcomeStatus;
+import com.eventmanager.payment.PaymentServiceClient;
 import com.eventmanager.repository.EventRepository;
 import com.eventmanager.repository.TicketOperationRepository;
 import com.eventmanager.repository.TicketRepository;
@@ -20,6 +26,8 @@ import com.eventmanager.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
@@ -29,10 +37,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -50,6 +62,10 @@ public class TicketService {
     private final UserRepository userRepository;
     private final TicketOperationRepository ticketOperationRepository;
     private final CassandraAsyncWriter cassandraAsyncWriter;
+    private final PaymentServiceClient paymentServiceClient;
+    private final PaymentCacheService paymentCacheService;
+    private final PlatformTransactionManager transactionManager;
+    private final CacheManager cacheManager;
 
     // Optional: absent in the test profile (Cassandra autoconfiguration excluded). Field-injected
     // with required = false for the same reason CassandraAsyncWriter's repositories are — see
@@ -84,8 +100,8 @@ public class TicketService {
      * Paginated list of every ticket owned by the authenticated caller, across all events,
      * ordered by ticket id. Resolves the caller's user id from the JWT and delegates to the
      * internal {@link #getTicketsByUserId(Long, int, int)} — the same public/private split
-     * {@link #purchaseTicket(Long, String)} uses, so an admin-facing "tickets for an arbitrary
-     * user id" variant could be added later without disturbing this one.
+     * {@link #purchaseTicket(Long, String, String)} uses, so an admin-facing "tickets for an
+     * arbitrary user id" variant could be added later without disturbing this one.
      */
     @Transactional(readOnly = true)
     public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
@@ -138,30 +154,126 @@ public class TicketService {
     }
 
     /**
-     * Purchases a ticket on behalf of the authenticated caller. Resolves the caller's user id
-     * from the JWT and delegates to the internal {@link #purchaseTicket(Long, Long, String)}.
-     * {@code userCredentials} is accepted and threaded through for future use (e.g. payment/
-     * identity confirmation) but is not itself validated against any store today — the
-     * enforced rule is still the same one SOLD has always had: the ticket must currently be
-     * RESERVED, and the caller must be the same user who reserved it. Records a PURCHASE
-     * {@link TicketOperation}.
+     * Purchases a ticket on behalf of the authenticated caller, charging {@code paymentToken} (a
+     * tokenized payment-method reference, never raw card data) via the payment service over gRPC.
+     * Resolves the caller's user id from the JWT and delegates to the internal
+     * {@link #purchaseTicket(Long, Long, String, String)}.
+     * <p>
+     * This is a saga, not one transaction: {@link #beginPayment} commits RESERVED→PAYING in its
+     * own short transaction, then the (up to 120-second) gRPC call happens with no transaction
+     * open at all, then {@link #completePayment} commits PAYING→SOLD/AVAILABLE in a second short
+     * transaction. A single long-held {@code @Transactional} method spanning the whole call would
+     * pin a HikariCP connection (and a row lock on this ticket) for the call's full duration —
+     * see docs/payment-service-integration.md, "Why two transactions instead of one".
+     * <p>
+     * Returns 409 ({@link TicketPaymentInProgressException}) if the ticket is already {@code
+     * PAYING} — a previous attempt is still in flight — rather than starting a second concurrent
+     * payment call for the same ticket. Returns 502 ({@link PaymentServiceUnavailableException})
+     * if the payment service call itself fails (timeout, connection error): the ticket is
+     * deliberately left {@code PAYING} in that case rather than auto-released, since the payment
+     * may have actually succeeded on the payment service's side even though this application
+     * never learned the outcome — releasing it risks selling the same ticket twice.
      */
-    @CachePut(value = "tickets", key = "#id")
-    @Transactional
-    public TicketResponse purchaseTicket(Long id, String userCredentials) {
-        return purchaseTicket(id, currentUserId(), userCredentials);
+    public TicketResponse purchaseTicket(Long id, String paymentToken, String clientPaymentRequestId) {
+        return purchaseTicket(id, currentUserId(), paymentToken, clientPaymentRequestId);
     }
 
-    /** Internal purchase function: ticket id, resolved caller user id, and user credentials. */
-    private TicketResponse purchaseTicket(Long id, Long userId, String userCredentials) {
-        log.info("Purchasing ticket id={} for user id={}", id, userId);
+    /** Internal purchase function: ticket id, resolved caller user id, payment token, and optional client-supplied paymentRequestId. */
+    private TicketResponse purchaseTicket(Long id, Long userId, String paymentToken, String clientPaymentRequestId) {
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+
+        PendingPayment pending = txTemplate.execute(status -> beginPayment(id, userId, clientPaymentRequestId));
+        evictTicketCache(id);
+
+        // Cached before the call goes out (not after) so the mapping is resolvable even if this
+        // application crashes mid-call — see PaymentCacheService#cachePaymentRequest.
+        paymentCacheService.cachePaymentRequest(pending.paymentRequestId(), id);
+        log.info("Calling payment service for ticket id={}, user id={}, paymentRequestId={}",
+                id, userId, pending.paymentRequestId());
+        PaymentOutcome outcome = paymentServiceClient.purchaseTicket(
+                pending.paymentRequestId(), userId, paymentToken, id, pending.purchasePrice());
+        paymentCacheService.cacheIdempotencyToken(pending.paymentRequestId(), outcome.idempotencyToken());
+
+        TicketResponse response = txTemplate.execute(
+                status -> completePayment(id, userId, pending.paymentRequestId(), outcome));
+        evictTicketCache(id);
+        return response;
+    }
+
+    /**
+     * Txn 1 of the purchase saga: validates (409 if already PAYING, else the same "RESERVED +
+     * ownership" check {@link #sell} has always enforced), stamps a paymentRequestId (the
+     * caller's if supplied, else a generated UUID — see {@code PurchaseTicketRequest}), and
+     * commits the RESERVED→PAYING transition. Returns the data the payment-service call needs,
+     * computed once here so {@code purchaseTicket} doesn't re-fetch the ticket before Txn 2.
+     * <p>
+     * Not {@code @Transactional}: it's invoked directly (self-invocation) from within the
+     * {@link TransactionTemplate#execute} lambda in {@code purchaseTicket}, which bypasses the
+     * Spring AOP proxy that {@code @Transactional} relies on — the transaction boundary here
+     * comes entirely from that explicit {@code TransactionTemplate}, not from an annotation.
+     */
+    private PendingPayment beginPayment(Long id, Long userId, String clientPaymentRequestId) {
         Ticket ticket = findTicketOrThrow(id);
+        if (ticket.getStatus() == TicketStatus.PAYING) {
+            throw new TicketPaymentInProgressException(id);
+        }
         sell(ticket, userId);
-        ticket.setStatus(TicketStatus.SOLD);
+        String paymentRequestId = (clientPaymentRequestId != null && !clientPaymentRequestId.isBlank())
+                ? clientPaymentRequestId
+                : UUID.randomUUID().toString();
+        ticket.setStatus(TicketStatus.PAYING);
+        ticket.setPaymentRequestId(paymentRequestId);
         Ticket saved = ticketRepository.save(ticket);
-        recordOperation(saved, TicketOperationType.PURCHASE, userId);
-        log.info("Purchased ticket id={} for user id={}", saved.getId(), userId);
-        return toResponse(saved);
+        log.info("Ticket id={} moved to PAYING for user id={}, paymentRequestId={}", id, userId, paymentRequestId);
+        return new PendingPayment(paymentRequestId, saved.getEvent().getTicketPrice());
+    }
+
+    /**
+     * Txn 2 of the purchase saga: resolves the outcome of the payment-service call.
+     * <ul>
+     *   <li>APPROVED → SOLD; records a PURCHASE {@link TicketOperation} with the real
+     *       confirmation id and idempotency token.</li>
+     *   <li>DECLINED → AVAILABLE, owner cleared; records a PAYMENT_DECLINED {@link
+     *       TicketOperation} (still with the idempotency token the payment service returned,
+     *       since it did process the request).</li>
+     *   <li>Anything else (the call itself failed — timeout, connection error) → the ticket is
+     *       left PAYING as-is and this throws {@link PaymentServiceUnavailableException}; no
+     *       {@link TicketOperation} is recorded since nothing was actually resolved. See
+     *       docs/payment-service-integration.md, "Reconciling a stuck PAYING ticket".</li>
+     * </ul>
+     * Not {@code @Transactional} for the same self-invocation reason as {@link #beginPayment}.
+     */
+    private TicketResponse completePayment(Long id, Long userId, String paymentRequestId, PaymentOutcome outcome) {
+        Ticket ticket = findTicketOrThrow(id);
+        if (outcome.status() == PaymentOutcomeStatus.APPROVED) {
+            ticket.setStatus(TicketStatus.SOLD);
+            Ticket saved = ticketRepository.save(ticket);
+            recordOperation(saved, TicketOperationType.PURCHASE, userId, paymentRequestId, outcome);
+            log.info("Purchased ticket id={} for user id={}, confirmationId={}", saved.getId(), userId, outcome.confirmationId());
+            return toResponse(saved);
+        }
+        if (outcome.status() == PaymentOutcomeStatus.DECLINED) {
+            ticket.setStatus(TicketStatus.AVAILABLE);
+            ticket.setUserId(null);
+            Ticket saved = ticketRepository.save(ticket);
+            recordOperation(saved, TicketOperationType.PAYMENT_DECLINED, userId, paymentRequestId, outcome);
+            log.info("Payment declined for ticket id={}, user id={}, paymentRequestId={}", id, userId, paymentRequestId);
+            return toResponse(saved);
+        }
+        log.error("Payment outcome unresolved for ticket id={}, user id={}, paymentRequestId={}, status={}; leaving ticket PAYING",
+                id, userId, paymentRequestId, outcome.status());
+        throw new PaymentServiceUnavailableException(id, paymentRequestId);
+    }
+
+    /** Data carried from {@link #beginPayment} to the payment-service call and on to {@link #completePayment}. */
+    private record PendingPayment(String paymentRequestId, BigDecimal purchasePrice) {
+    }
+
+    private void evictTicketCache(Long id) {
+        Cache cache = cacheManager.getCache("tickets");
+        if (cache != null) {
+            cache.evict(id);
+        }
     }
 
     /**
@@ -249,22 +361,48 @@ public class TicketService {
     }
 
     /**
-     * Records a PURCHASE or CANCEL against a ticket: one row synchronously in Postgres (the
-     * source of truth), then a best-effort async copy in Cassandra via CassandraAsyncWriter —
-     * the same dual-write pattern events/performers use, unlike the ticket-backup-on-delete path
-     * which is synchronous. {@code purchasePrice} is always the ticket's event's current
-     * {@code ticketPrice}; {@code paymentService}/{@code paymentConfirmationDetails} are fixed
-     * defaults today since there's no real payment integration yet.
+     * Records a CANCEL against a ticket (the only caller left using this overload — purchase
+     * outcomes go through {@link #recordOperation(Ticket, TicketOperationType, Long, String,
+     * PaymentOutcome)} below, since those have real payment info to record). One row
+     * synchronously in Postgres (the source of truth), then a best-effort async copy in
+     * Cassandra via CassandraAsyncWriter — the same dual-write pattern events/performers use,
+     * unlike the ticket-backup-on-delete path which is synchronous. {@code purchasePrice} is
+     * always the ticket's event's current {@code ticketPrice}; {@code paymentService}/
+     * {@code paymentConfirmationDetails} are fixed defaults since cancelling doesn't call the
+     * payment service (no refund flow exists yet).
      */
     private void recordOperation(Ticket ticket, TicketOperationType type, Long userId) {
+        recordOperation(ticket, type, userId, DEFAULT_PAYMENT_SERVICE, DEFAULT_PAYMENT_CONFIRMATION_DETAILS, null, null);
+    }
+
+    /**
+     * Records a PURCHASE or PAYMENT_DECLINED outcome against a ticket, with the real payment
+     * info the payment service returned: {@code confirmationId} (PURCHASE only) and
+     * {@code idempotencyToken} both go into the audit row alongside {@code paymentRequestId}, so
+     * a ticket's full payment history — approved or declined — is recoverable from
+     * {@code TicketOperation} even after the {@code Ticket} row itself moves on.
+     */
+    private void recordOperation(Ticket ticket, TicketOperationType type, Long userId,
+                                  String paymentRequestId, PaymentOutcome outcome) {
+        String confirmationDetails = outcome.status() == PaymentOutcomeStatus.APPROVED
+                ? outcome.confirmationId()
+                : "Payment declined";
+        recordOperation(ticket, type, userId, DEFAULT_PAYMENT_SERVICE, confirmationDetails,
+                paymentRequestId, outcome.idempotencyToken());
+    }
+
+    private void recordOperation(Ticket ticket, TicketOperationType type, Long userId, String paymentService,
+                                  String paymentConfirmationDetails, String paymentRequestId, String idempotencyToken) {
         TicketOperation operation = TicketOperation.builder()
                 .eventId(ticket.getEvent().getId())
                 .ticketId(ticket.getId())
                 .userId(userId)
                 .operation(type)
                 .purchasePrice(ticket.getEvent().getTicketPrice())
-                .paymentService(DEFAULT_PAYMENT_SERVICE)
-                .paymentConfirmationDetails(DEFAULT_PAYMENT_CONFIRMATION_DETAILS)
+                .paymentService(paymentService)
+                .paymentConfirmationDetails(paymentConfirmationDetails)
+                .paymentRequestId(paymentRequestId)
+                .idempotencyToken(idempotencyToken)
                 .operationDate(LocalDateTime.now())
                 .build();
         TicketOperation saved = ticketOperationRepository.save(operation);
@@ -281,6 +419,8 @@ public class TicketService {
                 .purchasePrice(operation.getPurchasePrice())
                 .paymentService(operation.getPaymentService())
                 .paymentConfirmationDetails(operation.getPaymentConfirmationDetails())
+                .paymentRequestId(operation.getPaymentRequestId())
+                .idempotencyToken(operation.getIdempotencyToken())
                 .operationDate(operation.getOperationDate())
                 .build();
     }
@@ -377,6 +517,7 @@ public class TicketService {
                         .collect(Collectors.toSet()))
                 .status(ticket.getStatus())
                 .userId(ticket.getUserId())
+                .paymentRequestId(ticket.getPaymentRequestId())
                 .build();
     }
 }

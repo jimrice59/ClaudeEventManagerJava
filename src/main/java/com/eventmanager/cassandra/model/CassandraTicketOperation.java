@@ -48,6 +48,12 @@ public class CassandraTicketOperation {
     @Column("payment_confirmation_details")
     private String paymentConfirmationDetails;
 
+    @Column("payment_request_id")
+    private String paymentRequestId;
+
+    @Column("idempotency_token")
+    private String idempotencyToken;
+
     @Column("operation_date")
     private LocalDateTime operationDate;
 }

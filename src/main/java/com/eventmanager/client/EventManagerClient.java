@@ -231,9 +231,15 @@ public class EventManagerClient {
         return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/release", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
     }
 
-    public TicketResponse purchaseTicket(Long id, String userCredentials) {
+    /**
+     * @param paymentToken a tokenized payment-method reference from the payment service, never raw card data
+     * @param paymentRequestId optional idempotency key for the payment-service call; pass {@code null} to let the
+     *                         server generate one (returned on {@link TicketResponse#getPaymentRequestId()})
+     */
+    public TicketResponse purchaseTicket(Long id, String paymentToken, String paymentRequestId) {
         PurchaseTicketRequest request = new PurchaseTicketRequest();
-        request.setUserCredentials(userCredentials);
+        request.setPaymentToken(paymentToken);
+        request.setPaymentRequestId(paymentRequestId);
         return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/purchase", HttpMethod.POST, authEntity(request), TicketResponse.class).getBody();
     }
 

@@ -48,7 +48,7 @@ All web controllers delegate directly to the existing services (`EventService`, 
 | `performers/list.html` | Card grid with name/genre search |
 | `performers/view.html` | Performer detail; admin panel for adding/removing video URLs inline |
 | `performers/form.html` | Create/edit form (name, genre, bio only — videos managed on the view page) |
-| `tickets/my-tickets.html` | Paginated list of the current user's own tickets across all events; Purchase (inline `userCredentials` text input) + Release forms for `RESERVED` tickets, Cancel for `SOLD` ones; empty state and `successMessage`/`errorMessage` banners |
+| `tickets/my-tickets.html` | Paginated list of the current user's own tickets across all events; status badges for `AVAILABLE`/`RESERVED`/`PAYING`/`SOLD`; Purchase (inline `paymentToken` text input — no `paymentRequestId` field, the server generates one) + Release forms for `RESERVED` tickets, Cancel for `SOLD` ones; empty state and `successMessage`/`errorMessage` banners |
 
 **`sec:authorize` in templates** — `thymeleaf-extras-springsecurity6` provides the `sec:` namespace. Admin-only buttons (Create venue, Edit/Delete venue, Edit/Delete performer, video management panel) are wrapped in `sec:authorize="hasRole('ADMIN')"` so they are not rendered for non-admin users. The server-side `@PreAuthorize` annotation on each controller method enforces the same rules independently.
 
@@ -86,5 +86,5 @@ All web controllers delegate directly to the existing services (`EventService`, 
 | GET | `/ui/tickets/me` | authenticated | Paginated list of the caller's own tickets (`?page=&size=`) |
 | POST | `/ui/tickets/{id}/reserve` | authenticated | Body: `eventId` (hidden field, so both success and failure redirect back to the event page); redirects to `/ui/events/{eventId}` |
 | POST | `/ui/tickets/{id}/release` | authenticated | Redirects to `/ui/tickets/me` |
-| POST | `/ui/tickets/{id}/purchase` | authenticated | Body: `userCredentials`; redirects to `/ui/tickets/me` |
+| POST | `/ui/tickets/{id}/purchase` | authenticated | Body: `paymentToken`; charges via the payment service (see payment-service-grpc.md) — redirects to `/ui/tickets/me` with a flash error if declined, a 409 is in progress, or the payment-service call itself fails (502) |
 | POST | `/ui/tickets/{id}/cancel` | authenticated | Redirects to `/ui/tickets/me` |

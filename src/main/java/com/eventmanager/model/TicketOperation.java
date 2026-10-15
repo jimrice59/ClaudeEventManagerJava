@@ -57,6 +57,17 @@ public class TicketOperation {
     @Column(name = "payment_confirmation_details", nullable = false)
     private String paymentConfirmationDetails;
 
+    /** The paymentRequestId of the payment-service call this operation records the outcome of. */
+    @Column(name = "payment_request_id")
+    private String paymentRequestId;
+
+    /**
+     * The payment service's own idempotency token for this attempt. Null for a {@link
+     * TicketOperationType#PAYMENT_ERROR} row, since no response was ever received to carry one.
+     */
+    @Column(name = "idempotency_token")
+    private String idempotencyToken;
+
     @NotNull
     @Column(name = "operation_date", nullable = false)
     private LocalDateTime operationDate;

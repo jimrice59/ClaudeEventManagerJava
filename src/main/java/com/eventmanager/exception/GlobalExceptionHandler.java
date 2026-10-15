@@ -30,6 +30,18 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.FORBIDDEN.value(), "Access denied"));
     }
 
+    @ExceptionHandler(TicketPaymentInProgressException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentInProgress(TicketPaymentInProgressException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(PaymentServiceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handlePaymentServiceUnavailable(PaymentServiceUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ErrorResponse(HttpStatus.BAD_GATEWAY.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

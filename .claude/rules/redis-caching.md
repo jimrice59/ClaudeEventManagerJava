@@ -13,7 +13,19 @@ All four services cache individual records by ID with a 1-hour TTL:
 | `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent` | `deleteEvent` |
 | `"venues"` | `VenueService` | `getVenueById` | `createVenue`, `updateVenue` | `deleteVenue` |
 | `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer`, `addVideo`, `deleteVideo` | `deletePerformer` |
-| `"tickets"` | `TicketService` | `getTicketById` | `reserveTicket`, `releaseTicket`, `purchaseTicket`, `cancelTicket` | — (see note) |
+| `"tickets"` | `TicketService` | `getTicketById` | `reserveTicket`, `releaseTicket`, `cancelTicket` | `purchaseTicket` (manual, see note) |
+
+`purchaseTicket` doesn't use `@CachePut` like the other three transitions — it calls
+`cacheManager.getCache("tickets").evict(id)` directly after each of its two saga transactions
+commits (RESERVED→PAYING, then PAYING→SOLD/AVAILABLE), since the private `beginPayment`/
+`completePayment` methods that make those two writes are invoked via self-invocation from inside a
+`TransactionTemplate` lambda rather than through the Spring AOP proxy that `@CachePut` relies on —
+see payment-service-grpc.md and docs/payment-service-integration.md. The net effect is the same as
+`@CachePut` would give (every ticket mutation evicts/repopulates the cache), just invoked manually
+and evicting twice (once per saga transaction) instead of writing once at the end — and, unlike
+`@CachePut`, nothing is cached at all if `purchaseTicket` throws (e.g. `PaymentServiceUnavailableException`),
+so a `GET /api/v1/tickets/{id}` immediately after a failed purchase attempt falls through to
+Postgres on next read rather than risk serving a stale pre-PAYING value for the cache's full TTL.
 
 `TicketService.getNumAvailableTickets(eventId)` is cached separately in a `"availableTicketCounts"` cache with its own short **5-second TTL** (configured as a per-cache override in `RedisConfig`, distinct from the 1-hour default above), keyed by `#eventId`. Unlike the four caches above, nothing `@CacheEvict`s or `@CachePut`s it on `reserveTicket`/`purchaseTicket`/`releaseTicket`/`cancelTicket` — the short TTL is the only staleness control, a deliberate trade-off: it absorbs read bursts against a value that changes on nearly every ticket write, at the cost of the count being up to 5 seconds stale.
 
@@ -28,6 +40,11 @@ Five list/search endpoints are also cached, `@Cacheable` only (no `@CachePut`/`@
 | `"performersByGenre"` | `PerformerService.getPerformersByGenre(genre)` | `#genre` | 30 minutes |
 
 `getAllEvents` gets a much shorter TTL than the other four because it has no filter — any event create/update/delete invalidates it, so a long TTL would mean stale results after almost any write; the filtered `venuesByCity`/`performersByName`/`performersByGenre`/`eventsByVenue` queries are hit less often and change less often relative to reads, so a 30-minute TTL was judged an acceptable staleness/hit-rate trade-off. `getEventsBetween` and `getAvailableTickets` remain uncached — an unbounded range of possible `start`/`end` or `page`/`size` argument combinations would fragment the cache into many near-unique, rarely-reused entries. `createAvailableTickets` (bulk-creates a whole event's worth of tickets) has no per-id cache entries to populate, so it isn't annotated. `backupAndDeleteAllForEvent` uses `@CacheEvict(value = "tickets", allEntries = true)` instead of the usual `key = "#id"` pattern, since it removes an unbounded, dynamically-sized set of ticket ids in one call — it does not evict `"availableTicketCounts"` either, again relying on the 5-second TTL. `TicketOperation` has no cache of its own — there's no `getById`-style read path for it, only writes (see cassandra-dual-write.md).
+
+`PaymentCacheService`'s two caches (`payment:request:*`, 24h; `payment:idempotency-token:*`, 5min —
+see payment-service-grpc.md) are **not** part of this `RedisCacheManager`/`@Cacheable` system at
+all — like `RateLimiter`, they talk to Redis directly via `StringRedisTemplate` with ad-hoc keys
+and explicit per-key TTLs, not named caches registered on the `RedisCacheManager` builder below.
 
 Cache is configured in `RedisConfig` with JSON serialization (`GenericJackson2JsonRedisSerializer`) and a 1-hour TTL by default. Every cache with a non-default TTL (`"availableTicketCounts"` at 5 seconds; `"allEvents"` at 30 seconds; `"eventsByVenue"`, `"venuesByCity"`, `"performersByName"`, `"performersByGenre"` at 30 minutes) is built from that same default config via `.entryTtl(Duration)` and registered individually with `.withCacheConfiguration(name, config)` on the `RedisCacheManager` builder — `cacheDefaults(...)` only applies to caches with no such override (`"events"`, `"venues"`, `"performers"`, `"tickets"`, at 1 hour). `EventResponse`, `VenueDto`, `PerformerDto`, and `TicketResponse` all implement `Serializable` for this reason (the cached `Long` from `getNumAvailableTickets` and the cached `List<...>` results from the list endpoints need no such treatment — `List` and the DTOs it holds are already covered).
 

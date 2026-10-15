@@ -30,12 +30,13 @@
         </div>
         <div class="d-flex align-items-center gap-2">
           <span class="badge bg-warning text-dark" th:if="${ticket.status.name() == 'RESERVED'}" th:text="${ticket.status}"></span>
+          <span class="badge bg-info text-dark" th:if="${ticket.status.name() == 'PAYING'}" th:text="${ticket.status}"></span>
           <span class="badge bg-success" th:if="${ticket.status.name() == 'SOLD'}" th:text="${ticket.status}"></span>
           <span class="badge bg-secondary" th:if="${ticket.status.name() == 'AVAILABLE'}" th:text="${ticket.status}"></span>
 
           <form th:if="${ticket.status.name() == 'RESERVED'}"
                 th:action="@{/ui/tickets/{id}/purchase(id=${ticket.id})}" method="post" class="d-flex gap-1">
-            <input type="text" name="userCredentials" class="form-control form-control-sm" placeholder="Payment details" required style="max-width:160px">
+            <input type="text" name="paymentToken" class="form-control form-control-sm" placeholder="Payment token" required style="max-width:160px">
             <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Purchase</button>
           </form>
           <form th:if="${ticket.status.name() == 'RESERVED'}"

@@ -67,6 +67,14 @@ rate-limit:
 edge-metrics:
   enabled: ${EDGE_METRICS_ENABLED:true}
 
+# gRPC client config for the external payment service called synchronously from
+# TicketService.purchaseTicket — see docs/payment-service-integration.md.
+payment-service:
+  host: ${PAYMENT_SERVICE_HOST:localhost}
+  port: ${PAYMENT_SERVICE_PORT:9095}
+  deadline: ${PAYMENT_SERVICE_DEADLINE:120s}
+  connect-timeout: ${PAYMENT_SERVICE_CONNECT_TIMEOUT:5s}
+
 oauth2:
   issuer: ${OAUTH2_ISSUER:http://localhost:8080}
 

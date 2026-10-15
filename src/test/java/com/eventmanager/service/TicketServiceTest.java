@@ -5,7 +5,9 @@ import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.ResourceNotFoundException;
+import com.eventmanager.exception.TicketPaymentInProgressException;
 import com.eventmanager.model.Event;
 import com.eventmanager.model.Performer;
 import com.eventmanager.model.Ticket;
@@ -14,6 +16,10 @@ import com.eventmanager.model.TicketOperationType;
 import com.eventmanager.model.TicketStatus;
 import com.eventmanager.model.User;
 import com.eventmanager.model.Venue;
+import com.eventmanager.payment.PaymentCacheService;
+import com.eventmanager.payment.PaymentOutcome;
+import com.eventmanager.payment.PaymentOutcomeStatus;
+import com.eventmanager.payment.PaymentServiceClient;
 import com.eventmanager.repository.EventRepository;
 import com.eventmanager.repository.TicketOperationRepository;
 import com.eventmanager.repository.TicketRepository;
@@ -25,6 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -32,6 +39,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -70,6 +78,18 @@ class TicketServiceTest {
     @Mock
     private TicketCassandraRepository ticketCassandraRepository;
 
+    @Mock
+    private PaymentServiceClient paymentServiceClient;
+
+    @Mock
+    private PaymentCacheService paymentCacheService;
+
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private CacheManager cacheManager;
+
     private TicketService ticketService;
 
     private Venue venue;
@@ -81,7 +101,8 @@ class TicketServiceTest {
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(ticketRepository, eventRepository, userRepository,
-                ticketOperationRepository, cassandraAsyncWriter);
+                ticketOperationRepository, cassandraAsyncWriter, paymentServiceClient, paymentCacheService,
+                transactionManager, cacheManager);
         // TicketCassandraRepository is field-injected (@Autowired(required = false)), matching
         // the optional-infrastructure-bean pattern documented for CassandraAsyncWriter — tests
         // that exercise the "Cassandra present" path inject it explicitly via ReflectionTestUtils.
@@ -354,19 +375,27 @@ class TicketServiceTest {
     // --- purchaseTicket ---
 
     @Test
-    void purchaseTicket_succeedsWhenReservedBySameUser() {
+    void purchaseTicket_succeedsWhenReservedBySameUserAndPaymentApproved() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
         when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentServiceClient.purchaseTicket(any(), eq(42L), eq("pm_tok_abc123"), eq(1L), eq(new BigDecimal("99.99"))))
+                .thenReturn(new PaymentOutcome(PaymentOutcomeStatus.APPROVED, "conf-9000", "idem-9000"));
         authenticateAs("alice");
 
-        TicketResponse result = ticketService.purchaseTicket(1L, "confirmation-token-abc123");
+        TicketResponse result = ticketService.purchaseTicket(1L, "pm_tok_abc123", null);
 
         assertThat(result.getStatus()).isEqualTo(TicketStatus.SOLD);
         assertThat(result.getUserId()).isEqualTo(42L);
+        assertThat(result.getPaymentRequestId()).isNotBlank();
+
+        // beginPayment (RESERVED→PAYING) and completePayment (PAYING→SOLD) each save once. (Both
+        // calls mutate and re-save the same mocked Ticket instance, so an ArgumentCaptor can't
+        // distinguish the two calls' intermediate states — only the final result and call count.)
+        verify(ticketRepository, org.mockito.Mockito.times(2)).save(any(Ticket.class));
 
         ArgumentCaptor<TicketOperation> captor = ArgumentCaptor.forClass(TicketOperation.class);
         verify(ticketOperationRepository).save(captor.capture());
@@ -377,9 +406,91 @@ class TicketServiceTest {
         assertThat(recorded.getOperation()).isEqualTo(TicketOperationType.PURCHASE);
         assertThat(recorded.getPurchasePrice()).isEqualByComparingTo("99.99");
         assertThat(recorded.getPaymentService()).isEqualTo("Square");
-        assertThat(recorded.getPaymentConfirmationDetails()).isEqualTo("payment confirmation 1234");
+        assertThat(recorded.getPaymentConfirmationDetails()).isEqualTo("conf-9000");
+        assertThat(recorded.getIdempotencyToken()).isEqualTo("idem-9000");
+        assertThat(recorded.getPaymentRequestId()).isNotBlank();
         assertThat(recorded.getOperationDate()).isNotNull();
         verify(cassandraAsyncWriter).saveTicketOperation(any(CassandraTicketOperation.class));
+        verify(paymentCacheService).cachePaymentRequest(any(), eq(1L));
+        verify(paymentCacheService).cacheIdempotencyToken(any(), eq("idem-9000"));
+    }
+
+    @Test
+    void purchaseTicket_usesClientSuppliedPaymentRequestId() {
+        ticket.setStatus(TicketStatus.RESERVED);
+        ticket.setUserId(42L);
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentServiceClient.purchaseTicket(eq("client-request-id-1"), eq(42L), any(), eq(1L), any()))
+                .thenReturn(new PaymentOutcome(PaymentOutcomeStatus.APPROVED, "conf-1", "idem-1"));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.purchaseTicket(1L, "pm_tok_abc123", "client-request-id-1");
+
+        assertThat(result.getPaymentRequestId()).isEqualTo("client-request-id-1");
+        verify(paymentServiceClient).purchaseTicket(eq("client-request-id-1"), eq(42L), any(), eq(1L), any());
+    }
+
+    @Test
+    void purchaseTicket_movesBackToAvailableWhenPaymentDeclined() {
+        ticket.setStatus(TicketStatus.RESERVED);
+        ticket.setUserId(42L);
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentServiceClient.purchaseTicket(any(), eq(42L), any(), eq(1L), any()))
+                .thenReturn(new PaymentOutcome(PaymentOutcomeStatus.DECLINED, null, "idem-declined"));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.purchaseTicket(1L, "pm_tok_abc123", null);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.AVAILABLE);
+        assertThat(result.getUserId()).isNull();
+
+        ArgumentCaptor<TicketOperation> captor = ArgumentCaptor.forClass(TicketOperation.class);
+        verify(ticketOperationRepository).save(captor.capture());
+        assertThat(captor.getValue().getOperation()).isEqualTo(TicketOperationType.PAYMENT_DECLINED);
+        assertThat(captor.getValue().getIdempotencyToken()).isEqualTo("idem-declined");
+    }
+
+    @Test
+    void purchaseTicket_throwsPaymentServiceUnavailableAndLeavesTicketPayingWhenCallFails() {
+        ticket.setStatus(TicketStatus.RESERVED);
+        ticket.setUserId(42L);
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(paymentServiceClient.purchaseTicket(any(), eq(42L), any(), eq(1L), any()))
+                .thenReturn(new PaymentOutcome(PaymentOutcomeStatus.ERROR, null, null));
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "pm_tok_abc123", null))
+                .isInstanceOf(PaymentServiceUnavailableException.class);
+
+        // Only beginPayment's RESERVED→PAYING save happens; completePayment never saves since
+        // the ticket is left PAYING, not resolved to SOLD/AVAILABLE.
+        ArgumentCaptor<Ticket> ticketCaptor = ArgumentCaptor.forClass(Ticket.class);
+        verify(ticketRepository).save(ticketCaptor.capture());
+        assertThat(ticketCaptor.getValue().getStatus()).isEqualTo(TicketStatus.PAYING);
+        verify(ticketOperationRepository, never()).save(any());
+    }
+
+    @Test
+    void purchaseTicket_throws409WhenAlreadyPaying() {
+        ticket.setStatus(TicketStatus.PAYING);
+        ticket.setUserId(42L);
+        ticket.setPaymentRequestId("in-flight-request");
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "pm_tok_abc123", null))
+                .isInstanceOf(TicketPaymentInProgressException.class);
+        verify(ticketRepository, never()).save(any());
+        verifyNoInteractions(paymentServiceClient);
     }
 
     @Test
@@ -389,7 +500,7 @@ class TicketServiceTest {
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
-        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "confirmation-token-abc123"))
+        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "pm_tok_abc123", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("RESERVED");
         verify(ticketRepository, never()).save(any());
@@ -405,7 +516,7 @@ class TicketServiceTest {
         when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
         authenticateAs("bob");
 
-        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "confirmation-token-abc123"))
+        assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "pm_tok_abc123", null))
                 .isInstanceOf(AccessDeniedException.class);
         verify(ticketRepository, never()).save(any());
         verify(ticketOperationRepository, never()).save(any());
@@ -417,7 +528,7 @@ class TicketServiceTest {
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
-        assertThatThrownBy(() -> ticketService.purchaseTicket(99L, "confirmation-token-abc123"))
+        assertThatThrownBy(() -> ticketService.purchaseTicket(99L, "pm_tok_abc123", null))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Ticket");
         verify(ticketRepository, never()).save(any());

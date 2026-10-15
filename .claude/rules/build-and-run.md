@@ -14,7 +14,10 @@ docker compose up -d
 # App + Traefik — adds Traefik reverse proxy (port 80) and dashboard (port 9000)
 docker compose --profile traefik up -d
 
-# Compile
+# Compile — also runs protobuf-maven-plugin, generating the payment-service gRPC client stubs
+# from src/main/proto/payment_service.proto (see payment-service-grpc.md). The first build on a
+# machine needs network access: os-maven-plugin + protobuf-maven-plugin download a native
+# protoc/protoc-gen-grpc-java binary from Maven Central for the host's OS/arch classifier.
 JAVA_HOME=... $MVN compile
 
 # Run application locally (against docker compose infrastructure only)
@@ -51,12 +54,12 @@ docker run -p 8080:8080 \
 ```
 
 The Dockerfile is a two-stage build:
-- **Build stage** (`maven:3.9-eclipse-temurin-21`): `pom.xml` is copied first and `dependency:go-offline` is run as a separate layer, so Maven dependencies are cached between builds and only re-downloaded when `pom.xml` changes.
+- **Build stage** (`maven:3.9-eclipse-temurin-21`): `pom.xml` is copied first and `dependency:go-offline` is run as a separate layer, so Maven dependencies are cached between builds and only re-downloaded when `pom.xml` changes. Note that `dependency:go-offline` only pre-fetches declared `<dependencies>`, not plugin-execution artifacts — `protobuf-maven-plugin`'s `protocArtifact`/`pluginArtifact` (the native protoc/protoc-gen-grpc-java binaries, see payment-service-grpc.md) are still fetched during the actual build step, so the image build needs network access even with a warm dependency cache.
 - **Runtime stage** (`eclipse-temurin:21-jre-alpine`): copies only the packaged jar into a minimal Alpine JRE image. No JDK, no Maven, no source in the final image.
 
 `.dockerignore` excludes `target/`, `.git/`, `.claude/`, `*.md`, and `dump.rdb`.
 
-All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `OAUTH2_ISSUER`.
+All config values default to localhost with `postgres/postgres` credentials. Override via env vars: `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE`, `CASSANDRA_DATACENTER`, `KAFKA_BOOTSTRAP_SERVERS`, `JWT_SECRET`, `JWT_EXPIRATION_MS`, `OAUTH2_ISSUER`, `PAYMENT_SERVICE_HOST`, `PAYMENT_SERVICE_PORT`, `PAYMENT_SERVICE_DEADLINE`, `PAYMENT_SERVICE_CONNECT_TIMEOUT`. There is no payment service in docker-compose today — `PaymentGrpcConfig`'s channel is lazy (doesn't connect until a purchase is attempted), so the app starts fine without one; see payment-service-grpc.md.
 
 `docker compose up -d` also starts Prometheus (port 9090) and Grafana (port 3000, `admin`/`admin`). Prometheus scrapes `/actuator/prometheus` from both `app:8080` (docker-compose mode) and `host.docker.internal:8080` (local `mvn spring-boot:run` mode) — unreachable targets show as DOWN without affecting the other. In Grafana, add `http://prometheus:9090` as a Prometheus data source and import dashboard ID **4701** (JVM Micrometer) for HTTP and JVM metrics.
 

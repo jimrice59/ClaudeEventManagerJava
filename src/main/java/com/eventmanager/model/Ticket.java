@@ -40,4 +40,14 @@ public class Ticket {
      */
     @Column(name = "user_id")
     private Long userId;
+
+    /**
+     * The {@code paymentRequestId} of the purchase attempt that moved this ticket into (or, once
+     * resolved, out of) {@code PAYING} — set by {@code TicketService.purchaseTicket} when it
+     * commits the AVAILABLE/RESERVED→PAYING transition and never cleared afterward, so the most
+     * recent payment attempt (successful or not) stays visible on the ticket itself for
+     * reconciliation/support lookups. See ticket-status-state-machine.md.
+     */
+    @Column(name = "payment_request_id")
+    private String paymentRequestId;
 }
