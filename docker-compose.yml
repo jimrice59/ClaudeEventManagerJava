@@ -102,6 +102,7 @@ services:
     container_name: eventmanager-app
     ports:
       - "8080:8080"
+      - "9091:9091"
     environment:
       DB_HOST: postgres
       DB_NAME: eventdb

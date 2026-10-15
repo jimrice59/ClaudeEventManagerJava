@@ -28,3 +28,8 @@ jwt:
 # none cover JPA/caching, but RateLimitFilter would otherwise hit Redis on every MockMvc request).
 rate-limit:
   enabled: false
+
+# Disabled in tests: mvn test shouldn't bind a real gRPC server socket — see
+# GrpcServerLifecycle/payment-service-grpc.md.
+grpc-api:
+  enabled: false

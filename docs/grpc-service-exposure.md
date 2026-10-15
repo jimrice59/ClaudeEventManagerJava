@@ -1,5 +1,10 @@
 # Exposing This Service as gRPC
 
+> **Implemented** — see `docs/grpc-api-exposure.md` for what was actually built (a public
+> `EventGrpcService` plus an authenticated `TicketGrpcService`, `JwtServerInterceptor` for auth,
+> `GrpcExceptionMapper` for error mapping) and `.claude/rules/grpc-api-server.md` for the code map.
+> This file is kept as the original design discussion.
+
 How can this service be exposed as a gRPC service? It fits cleanly because of how the app is
 already structured — the controllers are thin wrappers around `EventService`/`TicketService`/
 `PerformerService`/`VenueService`, so gRPC would become a **third transport** alongside the REST

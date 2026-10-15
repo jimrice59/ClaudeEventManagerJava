@@ -1,0 +1,129 @@
+syntax = "proto3";
+
+package eventmanager.api.v1;
+
+option java_package = "com.eventmanager.grpc.api";
+option java_outer_classname = "EventManagerApiProto";
+option java_multiple_files = true;
+
+// gRPC transport for a subset of this application's own API, alongside the REST API
+// (/api/v1/**) and the Thymeleaf web UI (/ui/**) — all three call the same service layer
+// (EventService, TicketService). See docs/grpc-api-exposure.md and payment-service-grpc.md
+// (a separate, unrelated gRPC client this application makes *to* an external payment service).
+//
+// Scope: public event reads and the full ticket reserve/release/purchase/cancel transition set —
+// the same slice sketched in docs/grpc-service-exposure.md. Venue/performer CRUD and ADMIN-only
+// event writes are not exposed here; see docs/grpc-api-exposure.md, "What's not exposed".
+//
+// Auth: send a custom JWT (the same one POST /api/v1/auth/login returns) as gRPC metadata
+// "authorization: Bearer <token>". Public RPCs (GetEvent, ListEvents, GetAvailableTicketCount,
+// GetTicket) work with no token; the rest require one, returning UNAUTHENTICATED without it.
+service EventGrpcService {
+  rpc GetEvent(GetEventRequest) returns (EventMessage);
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc GetAvailableTicketCount(GetEventRequest) returns (AvailableTicketCountResponse);
+}
+
+service TicketGrpcService {
+  rpc GetTicket(GetTicketRequest) returns (TicketMessage);
+  rpc GetMyTickets(PageQuery) returns (TicketPageResponse);
+  rpc ReserveTicket(TicketIdRequest) returns (TicketMessage);
+  rpc ReleaseTicket(TicketIdRequest) returns (TicketMessage);
+  rpc PurchaseTicket(PurchaseTicketGrpcRequest) returns (TicketMessage);
+  rpc CancelTicket(TicketIdRequest) returns (TicketMessage);
+}
+
+message GetEventRequest {
+  int64 id = 1;
+}
+
+message ListEventsRequest {
+  optional int64 venue_id = 1; // omitted: all events (GET /api/v1/events with no filter)
+}
+
+message ListEventsResponse {
+  repeated EventMessage events = 1;
+}
+
+message AvailableTicketCountResponse {
+  int64 count = 1;
+}
+
+message VenueMessage {
+  int64 id = 1;
+  string name = 2;
+  string address = 3;
+  string city = 4;
+  string state = 5;
+  string zip_code = 6;
+  int32 capacity = 7;
+}
+
+message PerformerMessage {
+  int64 id = 1;
+  string name = 2;
+  string genre = 3;
+  string bio = 4;
+  repeated string video_urls = 5;
+}
+
+message EventMessage {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string event_date = 4;    // ISO-8601 (LocalDateTime.toString()), e.g. "2025-08-15T19:00"
+  string ticket_price = 5;  // decimal as a string, as in the payment-service proto
+  int32 tickets_total = 6;
+  string status = 7;        // EventStatus name: AVAILABLE or DELETING
+  VenueMessage venue = 8;
+  repeated PerformerMessage performers = 9;
+  string created_at = 10;
+  string updated_at = 11;
+}
+
+message GetTicketRequest {
+  int64 id = 1;
+}
+
+message TicketIdRequest {
+  int64 id = 1;
+}
+
+message PurchaseTicketGrpcRequest {
+  int64 id = 1;
+  string payment_token = 2;           // tokenized payment-method reference, never raw card data
+  optional string payment_request_id = 3;
+}
+
+message PerformerSummaryMessage {
+  int64 id = 1;
+  string name = 2;
+}
+
+message TicketMessage {
+  int64 id = 1;
+  int64 event_id = 2;
+  string event_name = 3;
+  string event_date = 4;
+  string description = 5;
+  int64 venue_id = 6;
+  string venue_name = 7;
+  repeated PerformerSummaryMessage performers = 8;
+  string status = 9;  // TicketStatus name: AVAILABLE, RESERVED, PAYING, or SOLD
+  optional int64 user_id = 10;
+  optional string payment_request_id = 11;
+}
+
+message PageQuery {
+  int32 page = 1;
+  int32 size = 2;
+}
+
+message TicketPageResponse {
+  repeated TicketMessage content = 1;
+  int32 page = 2;
+  int32 size = 3;
+  int64 total_elements = 4;
+  int32 total_pages = 5;
+  bool last = 6;
+}

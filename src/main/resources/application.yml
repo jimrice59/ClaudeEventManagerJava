@@ -75,6 +75,12 @@ payment-service:
   deadline: ${PAYMENT_SERVICE_DEADLINE:120s}
   connect-timeout: ${PAYMENT_SERVICE_CONNECT_TIMEOUT:5s}
 
+# This application's own gRPC server (distinct from the payment-service client above) — see
+# docs/grpc-api-exposure.md and payment-service-grpc.md.
+grpc-api:
+  enabled: ${GRPC_API_ENABLED:true}
+  port: ${GRPC_API_PORT:9091}
+
 oauth2:
   issuer: ${OAUTH2_ISSUER:http://localhost:8080}
 
