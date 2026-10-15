@@ -3,8 +3,9 @@
 ## Project Summary
 
 **What it is:** A full-stack event ticketing platform — browse events/venues/performers, reserve
-and purchase tickets, manage everything through both a REST API and a server-rendered web UI. Built
-as a demonstration/learning project touching a broad slice of a modern Java backend stack.
+and purchase tickets, manage everything through a REST API, a gRPC API, and a server-rendered web
+UI. Built as a demonstration/learning project touching a broad slice of a modern Java backend
+stack.
 
 ### Tech Stack
 
