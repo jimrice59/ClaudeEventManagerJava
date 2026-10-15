@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package eventmanager.api.v1;
+
+option java_package = "com.eventmanager.grpc.api";
+option java_outer_classname = "VenueApiProto";
+option java_multiple_files = true;
+
+import "google/protobuf/empty.proto";
+import "event_manager_api.proto"; // VenueMessage
+
+// See event_manager_api.proto for the auth model shared by every service in this package.
+// GetVenue/ListVenues are public; Create/Update/DeleteVenue are ADMIN-only.
+service VenueGrpcService {
+  rpc GetVenue(VenueIdRequest) returns (VenueMessage);
+  rpc ListVenues(ListVenuesRequest) returns (ListVenuesResponse);
+  rpc CreateVenue(CreateVenueRequest) returns (VenueMessage);     // ADMIN
+  rpc UpdateVenue(UpdateVenueRequest) returns (VenueMessage);     // ADMIN
+  rpc DeleteVenue(VenueIdRequest) returns (google.protobuf.Empty); // ADMIN
+}
+
+message VenueIdRequest {
+  int64 id = 1;
+}
+
+message ListVenuesRequest {
+  optional string city = 1; // omitted: every venue (GET /api/v1/venues with no filter)
+}
+
+message ListVenuesResponse {
+  repeated VenueMessage venues = 1;
+}
+
+message CreateVenueRequest {
+  string name = 1;
+  string address = 2;
+  string city = 3;
+  string state = 4;
+  optional string zip_code = 5;
+  int32 capacity = 6;
+}
+
+message UpdateVenueRequest {
+  int64 id = 1;
+  string name = 2;
+  string address = 3;
+  string city = 4;
+  string state = 5;
+  optional string zip_code = 6;
+  int32 capacity = 7;
+}

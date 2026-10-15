@@ -3,14 +3,16 @@
 ## Three transports, one service layer
 
 REST (`/api/v1/**`), the Thymeleaf web UI (`/ui/**`), and a gRPC server (port 9091 by default,
-separate from the HTTP port 8080) all call the same `EventService`/`TicketService` beans — no
-business logic is duplicated across transports. The gRPC server exposes a smaller slice (public
-event reads + the full ticket reserve/release/purchase/cancel set, no venue/performer/admin-write
-endpoints) and has its own auth layer (`JwtServerInterceptor`, validating the same custom JWT
-outside the servlet filter chain below, since none of it sees gRPC traffic) — see
-grpc-api-server.md and docs/grpc-api-exposure.md. (Separately, this application is also a gRPC
-*client* to an external payment service — see payment-service-grpc.md — unrelated, opposite
-direction.)
+separate from the HTTP port 8080) all call the same `EventService`/`TicketService`/`VenueService`/
+`PerformerService` beans — no business logic is duplicated across transports. The gRPC server now
+covers the full CRUD surface for events/venues/performers plus every ticket transition, and has
+its own auth layer (`JwtServerInterceptor`, validating the same custom JWT outside the servlet
+filter chain below, since none of it sees gRPC traffic) with its own `ROLE_ADMIN` gate
+(`GrpcCallSupport.runAdmin`, returning `PERMISSION_DENIED` — the gRPC equivalent of
+`@PreAuthorize("hasRole('ADMIN')")`) for the same create/update/delete operations the REST API
+restricts to admins — see grpc-api-server.md and docs/grpc-api-exposure.md. (Separately, this
+application is also a gRPC *client* to an external payment service — see payment-service-grpc.md —
+unrelated, opposite direction.)
 
 ## Request flow
 ```

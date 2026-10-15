@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package eventmanager.api.v1;
+
+option java_package = "com.eventmanager.grpc.api";
+option java_outer_classname = "PerformerApiProto";
+option java_multiple_files = true;
+
+import "google/protobuf/empty.proto";
+import "event_manager_api.proto"; // PerformerMessage
+
+// See event_manager_api.proto for the auth model shared by every service in this package.
+// GetPerformer/ListPerformers are public; everything else is ADMIN-only, matching
+// PerformerController's own @PreAuthorize rules (including AddVideo/RemoveVideo — there is no
+// anonymous or non-admin write path to a performer's video list on the REST API either).
+service PerformerGrpcService {
+  rpc GetPerformer(PerformerIdRequest) returns (PerformerMessage);
+  rpc ListPerformers(ListPerformersRequest) returns (ListPerformersResponse);
+  rpc CreatePerformer(CreatePerformerRequest) returns (PerformerMessage);       // ADMIN
+  rpc UpdatePerformer(UpdatePerformerRequest) returns (PerformerMessage);       // ADMIN
+  rpc AddVideo(VideoGrpcRequest) returns (PerformerMessage);                    // ADMIN
+  rpc RemoveVideo(VideoGrpcRequest) returns (PerformerMessage);                 // ADMIN
+  rpc DeletePerformer(PerformerIdRequest) returns (google.protobuf.Empty);      // ADMIN
+}
+
+message PerformerIdRequest {
+  int64 id = 1;
+}
+
+// Mirrors GET /api/v1/performers?name=&genre=: if name is present it wins (substring,
+// case-insensitive) regardless of genre; else if genre is present, exact case-insensitive match;
+// else every performer. The REST API's Swagger docs say "provide at most one filter" as
+// guidance, but neither it nor PerformerGrpcServiceImpl actually rejects both being set —
+// name's priority is what breaks the tie.
+message ListPerformersRequest {
+  optional string name = 1;
+  optional string genre = 2;
+}
+
+message ListPerformersResponse {
+  repeated PerformerMessage performers = 1;
+}
+
+message CreatePerformerRequest {
+  string name = 1;
+  optional string genre = 2;
+  optional string bio = 3;
+}
+
+message UpdatePerformerRequest {
+  int64 id = 1;
+  string name = 2;
+  optional string genre = 3;
+  optional string bio = 4;
+}
+
+// Named distinctly from com.eventmanager.dto.VideoRequest (a different package — no actual
+// collision, but the suffix avoids any confusion when reading the two side by side), the same
+// way PurchaseTicketGrpcRequest is distinguished from the REST PurchaseTicketRequest DTO.
+message VideoGrpcRequest {
+  int64 performer_id = 1;
+  string url = 2;
+}

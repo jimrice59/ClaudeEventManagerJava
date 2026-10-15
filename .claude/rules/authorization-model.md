@@ -9,8 +9,10 @@ paths:
 # Authorization Model
 
 This covers the REST API and web UI only — none of this filter chain sees gRPC traffic. The gRPC
-API server (port 9091) has its own, separate JWT-validating auth layer with no role-based gating
-yet; see grpc-api-server.md and docs/grpc-api-exposure.md.
+API server (port 9091) has its own, separate JWT-validating auth layer (`JwtServerInterceptor`)
+with its own `ROLE_ADMIN` gate (`GrpcCallSupport.runAdmin`, returning `PERMISSION_DENIED` — the
+gRPC equivalent of `@PreAuthorize("hasRole('ADMIN')")`) on the same create/update/delete RPCs the
+REST API restricts to admins; see grpc-api-server.md and docs/grpc-api-exposure.md.
 
 Defined in `SecurityConfig.securityFilterChain` (`@Order(4)`; bypassed when the `dev` profile is active):
 - Public (no token): `GET /api/v1/events/**`, `GET /api/v1/venues/**`, `GET /api/v1/performers/**`, `GET /api/v1/tickets/**` (except `/me`, see below), `POST /api/v1/auth/**`, `/actuator/health`, `/actuator/prometheus`

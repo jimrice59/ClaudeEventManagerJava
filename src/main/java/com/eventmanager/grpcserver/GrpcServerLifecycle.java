@@ -32,6 +32,8 @@ public class GrpcServerLifecycle implements SmartLifecycle {
     private final GrpcServerProperties properties;
     private final EventGrpcServiceImpl eventGrpcService;
     private final TicketGrpcServiceImpl ticketGrpcService;
+    private final VenueGrpcServiceImpl venueGrpcService;
+    private final PerformerGrpcServiceImpl performerGrpcService;
     private final JwtServerInterceptor jwtServerInterceptor;
 
     private Server server;
@@ -47,6 +49,8 @@ public class GrpcServerLifecycle implements SmartLifecycle {
             server = NettyServerBuilder.forPort(properties.getPort())
                     .addService(ServerInterceptors.intercept(eventGrpcService, jwtServerInterceptor))
                     .addService(ServerInterceptors.intercept(ticketGrpcService, jwtServerInterceptor))
+                    .addService(ServerInterceptors.intercept(venueGrpcService, jwtServerInterceptor))
+                    .addService(ServerInterceptors.intercept(performerGrpcService, jwtServerInterceptor))
                     .build()
                     .start();
             running = true;

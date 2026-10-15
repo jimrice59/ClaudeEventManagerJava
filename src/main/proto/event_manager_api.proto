@@ -6,22 +6,28 @@ option java_package = "com.eventmanager.grpc.api";
 option java_outer_classname = "EventManagerApiProto";
 option java_multiple_files = true;
 
-// gRPC transport for a subset of this application's own API, alongside the REST API
-// (/api/v1/**) and the Thymeleaf web UI (/ui/**) — all three call the same service layer
-// (EventService, TicketService). See docs/grpc-api-exposure.md and payment-service-grpc.md
-// (a separate, unrelated gRPC client this application makes *to* an external payment service).
-//
-// Scope: public event reads and the full ticket reserve/release/purchase/cancel transition set —
-// the same slice sketched in docs/grpc-service-exposure.md. Venue/performer CRUD and ADMIN-only
-// event writes are not exposed here; see docs/grpc-api-exposure.md, "What's not exposed".
+import "google/protobuf/empty.proto";
+
+// gRPC transport for this application's own API (events/tickets here; see venue_api.proto and
+// performer_api.proto for venues/performers), alongside the REST API (/api/v1/**) and the
+// Thymeleaf web UI (/ui/**) — all three call the same service layer (EventService,
+// TicketService, VenueService, PerformerService). See docs/grpc-api-exposure.md and
+// payment-service-grpc.md (a separate, unrelated gRPC client this application makes *to* an
+// external payment service).
 //
 // Auth: send a custom JWT (the same one POST /api/v1/auth/login returns) as gRPC metadata
-// "authorization: Bearer <token>". Public RPCs (GetEvent, ListEvents, GetAvailableTicketCount,
-// GetTicket) work with no token; the rest require one, returning UNAUTHENTICATED without it.
+// "authorization: Bearer <token>". Public RPCs work with no token and return the same data
+// regardless of role; authenticated-only RPCs return UNAUTHENTICATED with no token;
+// ADMIN-only RPCs (CreateEvent, UpdateEvent, DeleteEvent here; the Create/Update/Delete/
+// AddVideo/RemoveVideo RPCs in venue_api.proto/performer_api.proto) return PERMISSION_DENIED for
+// an authenticated caller without ROLE_ADMIN.
 service EventGrpcService {
   rpc GetEvent(GetEventRequest) returns (EventMessage);
   rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
   rpc GetAvailableTicketCount(GetEventRequest) returns (AvailableTicketCountResponse);
+  rpc CreateEvent(CreateEventRequest) returns (EventMessage);   // ADMIN
+  rpc UpdateEvent(UpdateEventRequest) returns (EventMessage);   // ADMIN
+  rpc DeleteEvent(EventIdRequest) returns (google.protobuf.Empty); // ADMIN
 }
 
 service TicketGrpcService {
@@ -37,6 +43,10 @@ message GetEventRequest {
   int64 id = 1;
 }
 
+message EventIdRequest {
+  int64 id = 1;
+}
+
 message ListEventsRequest {
   optional int64 venue_id = 1; // omitted: all events (GET /api/v1/events with no filter)
 }
@@ -49,21 +59,44 @@ message AvailableTicketCountResponse {
   int64 count = 1;
 }
 
+message CreateEventRequest {
+  string name = 1;
+  string description = 2;
+  string event_date = 3;    // ISO-8601, e.g. "2025-08-15T19:00:00"
+  string ticket_price = 4;  // decimal as a string
+  int32 tickets_total = 5;
+  int64 venue_id = 6;
+  repeated int64 performer_ids = 7;
+}
+
+message UpdateEventRequest {
+  int64 id = 1;
+  string name = 2;
+  string description = 3;
+  string event_date = 4;
+  string ticket_price = 5;
+  int64 venue_id = 6;
+  repeated int64 performer_ids = 7;
+  // tickets_total is deliberately not a field here: it's immutable after creation and
+  // EventService.updateEvent already silently ignores it even when present in the REST
+  // EventRequest body — this new surface simply doesn't offer a field that would be dropped.
+}
+
 message VenueMessage {
   int64 id = 1;
   string name = 2;
   string address = 3;
   string city = 4;
   string state = 5;
-  string zip_code = 6;
+  optional string zip_code = 6;
   int32 capacity = 7;
 }
 
 message PerformerMessage {
   int64 id = 1;
   string name = 2;
-  string genre = 3;
-  string bio = 4;
+  optional string genre = 3;
+  optional string bio = 4;
   repeated string video_urls = 5;
 }
 

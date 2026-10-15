@@ -1,16 +1,26 @@
 package com.eventmanager.grpcserver;
 
 import com.eventmanager.dto.EventResponse;
+import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.dto.VenueDto;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
+import com.eventmanager.grpc.api.CreateEventRequest;
+import com.eventmanager.grpc.api.CreateVenueRequest;
 import com.eventmanager.grpc.api.EventGrpcServiceGrpc;
 import com.eventmanager.grpc.api.EventMessage;
 import com.eventmanager.grpc.api.GetEventRequest;
+import com.eventmanager.grpc.api.PerformerGrpcServiceGrpc;
+import com.eventmanager.grpc.api.PerformerIdRequest;
+import com.eventmanager.grpc.api.PerformerMessage;
 import com.eventmanager.grpc.api.PurchaseTicketGrpcRequest;
 import com.eventmanager.grpc.api.TicketGrpcServiceGrpc;
 import com.eventmanager.grpc.api.TicketIdRequest;
 import com.eventmanager.grpc.api.TicketMessage;
+import com.eventmanager.grpc.api.VenueGrpcServiceGrpc;
+import com.eventmanager.grpc.api.VenueIdRequest;
+import com.eventmanager.grpc.api.VenueMessage;
 import com.eventmanager.model.Role;
 import com.eventmanager.model.TicketStatus;
 import com.eventmanager.model.User;
@@ -18,12 +28,15 @@ import com.eventmanager.repository.UserRepository;
 import com.eventmanager.security.JwtTokenProvider;
 import com.eventmanager.security.UserDetailsServiceImpl;
 import com.eventmanager.service.EventService;
+import com.eventmanager.service.PerformerService;
 import com.eventmanager.service.TicketService;
+import com.eventmanager.service.VenueService;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Metadata;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
+import io.grpc.stub.AbstractStub;
 import io.grpc.stub.MetadataUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +54,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -61,6 +76,7 @@ import static org.mockito.Mockito.when;
 class EventManagerApiGrpcTest {
 
     private static final String TEST_USERNAME = "grpc-test-user";
+    private static final String TEST_ADMIN_USERNAME = "grpc-test-admin";
 
     @Autowired
     private GrpcServerLifecycle grpcServerLifecycle;
@@ -80,10 +96,19 @@ class EventManagerApiGrpcTest {
     @MockBean
     private TicketService ticketService;
 
+    @MockBean
+    private VenueService venueService;
+
+    @MockBean
+    private PerformerService performerService;
+
     private ManagedChannel channel;
     private EventGrpcServiceGrpc.EventGrpcServiceBlockingStub eventStub;
     private TicketGrpcServiceGrpc.TicketGrpcServiceBlockingStub ticketStub;
+    private VenueGrpcServiceGrpc.VenueGrpcServiceBlockingStub venueStub;
+    private PerformerGrpcServiceGrpc.PerformerGrpcServiceBlockingStub performerStub;
     private String validToken;
+    private String adminToken;
 
     @BeforeEach
     void setUp() {
@@ -92,19 +117,26 @@ class EventManagerApiGrpcTest {
                 .build();
         eventStub = EventGrpcServiceGrpc.newBlockingStub(channel);
         ticketStub = TicketGrpcServiceGrpc.newBlockingStub(channel);
+        venueStub = VenueGrpcServiceGrpc.newBlockingStub(channel);
+        performerStub = PerformerGrpcServiceGrpc.newBlockingStub(channel);
 
-        if (userRepository.findByUsername(TEST_USERNAME).isEmpty()) {
+        validToken = tokenFor(TEST_USERNAME, Role.ROLE_USER);
+        adminToken = tokenFor(TEST_ADMIN_USERNAME, Role.ROLE_ADMIN);
+    }
+
+    private String tokenFor(String username, Role role) {
+        if (userRepository.findByUsername(username).isEmpty()) {
             userRepository.save(User.builder()
-                    .username(TEST_USERNAME)
-                    .email("grpc-test-user@example.com")
+                    .username(username)
+                    .email(username + "@example.com")
                     .password("irrelevant-not-used-by-jwt-login")
-                    .role(Role.ROLE_USER)
+                    .role(role)
                     .build());
         }
-        UserDetails userDetails = userDetailsService.loadUserByUsername(TEST_USERNAME);
+        UserDetails userDetails = userDetailsService.loadUserByUsername(username);
         Authentication authentication =
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-        validToken = jwtTokenProvider.generateToken(authentication);
+        return jwtTokenProvider.generateToken(authentication);
     }
 
     @AfterEach
@@ -113,8 +145,7 @@ class EventManagerApiGrpcTest {
         SecurityContextHolder.clearContext();
     }
 
-    private TicketGrpcServiceGrpc.TicketGrpcServiceBlockingStub withBearerToken(
-            TicketGrpcServiceGrpc.TicketGrpcServiceBlockingStub stub, String token) {
+    private <S extends AbstractStub<S>> S withBearerToken(S stub, String token) {
         Metadata metadata = new Metadata();
         metadata.put(Metadata.Key.of("authorization", Metadata.ASCII_STRING_MARSHALLER), "Bearer " + token);
         return stub.withInterceptors(MetadataUtils.newAttachHeadersInterceptor(metadata));
@@ -193,5 +224,129 @@ class EventManagerApiGrpcTest {
                 .isInstanceOf(StatusRuntimeException.class)
                 .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
                         .isEqualTo(Status.Code.FAILED_PRECONDITION));
+    }
+
+    // --- Venue/Performer/admin-event-write RPCs: ROLE_ADMIN gating and validation ---
+
+    @Test
+    void getVenue_worksWithNoTokenAtAll() {
+        when(venueService.getVenueById(1L)).thenReturn(
+                VenueDto.builder().id(1L).name("Madison Square Garden").address("4 Pennsylvania Plaza")
+                        .city("New York").state("NY").capacity(20000).build());
+
+        VenueMessage response = venueStub.getVenue(VenueIdRequest.newBuilder().setId(1L).build());
+
+        assertThat(response.getName()).isEqualTo("Madison Square Garden");
+        assertThat(response.hasZipCode()).isFalse(); // not set above — proves optional presence isn't defaulted to ""
+    }
+
+    @Test
+    void createVenue_rejectedWithPermissionDeniedForNonAdminCaller() {
+        var authedStub = withBearerToken(venueStub, validToken); // ROLE_USER, not ROLE_ADMIN
+
+        assertThatThrownBy(() -> authedStub.createVenue(CreateVenueRequest.newBuilder()
+                        .setName("The Forum").setAddress("3900 W Manchester Blvd").setCity("Inglewood")
+                        .setState("CA").setCapacity(17500).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.PERMISSION_DENIED));
+        verifyNoVenueServiceWrite();
+    }
+
+    @Test
+    void createVenue_rejectedWithUnauthenticatedWhenNoToken() {
+        assertThatThrownBy(() -> venueStub.createVenue(CreateVenueRequest.newBuilder()
+                        .setName("The Forum").setAddress("3900 W Manchester Blvd").setCity("Inglewood")
+                        .setState("CA").setCapacity(17500).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.UNAUTHENTICATED));
+        verifyNoVenueServiceWrite();
+    }
+
+    @Test
+    void createVenue_succeedsForAdminCaller() {
+        when(venueService.createVenue(any())).thenAnswer(invocation -> {
+            VenueDto dto = invocation.getArgument(0);
+            dto.setId(5L);
+            return dto;
+        });
+        var adminStub = withBearerToken(venueStub, adminToken);
+
+        VenueMessage response = adminStub.createVenue(CreateVenueRequest.newBuilder()
+                .setName("The Forum").setAddress("3900 W Manchester Blvd").setCity("Inglewood")
+                .setState("CA").setCapacity(17500).build());
+
+        assertThat(response.getId()).isEqualTo(5L);
+        assertThat(response.getName()).isEqualTo("The Forum");
+    }
+
+    /**
+     * Proves {@link GrpcValidationSupport} actually runs — {@code VenueDto.name} is
+     * {@code @NotBlank}; an empty name reaching {@code VenueService} unvalidated would be a
+     * regression, since proto3 has no equivalent of {@code @Valid} to catch this for free.
+     */
+    @Test
+    void createVenue_mapsConstraintViolationToInvalidArgument() {
+        var adminStub = withBearerToken(venueStub, adminToken);
+
+        assertThatThrownBy(() -> adminStub.createVenue(CreateVenueRequest.newBuilder()
+                        .setName("") // blank — violates @NotBlank on VenueDto.name
+                        .setAddress("3900 W Manchester Blvd").setCity("Inglewood").setState("CA")
+                        .setCapacity(17500).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
+        verifyNoVenueServiceWrite();
+    }
+
+    private void verifyNoVenueServiceWrite() {
+        verify(venueService, never()).createVenue(any());
+        verify(venueService, never()).updateVenue(anyLong(), any());
+        verify(venueService, never()).deleteVenue(anyLong());
+    }
+
+    @Test
+    void getPerformer_worksWithNoTokenAtAll() {
+        when(performerService.getPerformerById(1L)).thenReturn(
+                PerformerDto.builder().id(1L).name("The Beatles").genre("Rock").build());
+
+        PerformerMessage response = performerStub.getPerformer(PerformerIdRequest.newBuilder().setId(1L).build());
+
+        assertThat(response.getName()).isEqualTo("The Beatles");
+        assertThat(response.hasBio()).isFalse();
+    }
+
+    @Test
+    void deletePerformer_rejectedWithPermissionDeniedForNonAdminCaller() {
+        var authedStub = withBearerToken(performerStub, validToken);
+
+        assertThatThrownBy(() -> authedStub.deletePerformer(PerformerIdRequest.newBuilder().setId(1L).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.PERMISSION_DENIED));
+        verify(performerService, never()).deletePerformer(anyLong());
+    }
+
+    @Test
+    void deletePerformer_succeedsForAdminCaller() {
+        var adminStub = withBearerToken(performerStub, adminToken);
+
+        adminStub.deletePerformer(PerformerIdRequest.newBuilder().setId(1L).build());
+
+        verify(performerService).deletePerformer(1L);
+    }
+
+    @Test
+    void createEvent_rejectedWithPermissionDeniedForNonAdminCaller() {
+        var authedStub = withBearerToken(eventStub, validToken);
+
+        assertThatThrownBy(() -> authedStub.createEvent(CreateEventRequest.newBuilder()
+                        .setName("Jazz Night").setEventDate("2025-09-01T20:00:00").setTicketPrice("45.00")
+                        .setTicketsTotal(100).setVenueId(1L).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.PERMISSION_DENIED));
+        verify(eventService, never()).createEvent(any());
     }
 }

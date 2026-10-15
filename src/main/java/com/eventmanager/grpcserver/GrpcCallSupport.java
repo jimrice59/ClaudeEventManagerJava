@@ -2,6 +2,7 @@ package com.eventmanager.grpcserver;
 
 import io.grpc.Context;
 import io.grpc.stub.StreamObserver;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -60,6 +61,27 @@ final class GrpcCallSupport {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             if (authentication == null || !authentication.isAuthenticated()) {
                 throw new GrpcUnauthenticatedException();
+            }
+            action.run();
+        });
+    }
+
+    /**
+     * For RPCs that require ROLE_ADMIN — the gRPC equivalent of
+     * {@code @PreAuthorize("hasRole('ADMIN')")}. Built on top of {@link #runAuthenticated}, so
+     * the precedence matches the REST API exactly: no token at all → {@code UNAUTHENTICATED}
+     * (same as any other authenticated-only RPC, via the inner {@code runAuthenticated} check,
+     * which runs first); a valid token but the wrong role → {@link AccessDeniedException} →
+     * {@code PERMISSION_DENIED} via {@link GrpcExceptionMapper} — the same exception type and
+     * mapping {@code sell()}/{@code cancel()} in {@code TicketService} already use for ownership
+     * failures, reused here unchanged rather than inventing a second "access denied" concept.
+     */
+    static void runAdmin(StreamObserver<?> responseObserver, Runnable action) {
+        runAuthenticated(responseObserver, () -> {
+            boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                    .anyMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"));
+            if (!isAdmin) {
+                throw new AccessDeniedException("ROLE_ADMIN required");
             }
             action.run();
         });

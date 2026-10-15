@@ -18,10 +18,11 @@ paths:
 | `VenueServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 11 | Pure unit tests, no Spring context |
 | `EventServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 18 | Pure unit tests, no Spring context |
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
-| `TicketServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 27 | Pure unit tests, no Spring context — see ticket-status-state-machine.md |
+| `TicketServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 34 | Pure unit tests, no Spring context — see ticket-status-state-machine.md |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 | `RateLimiterTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Pure unit tests, no Spring context, no Redis — see rate-limiting.md |
 | `EdgeMetricsConfigTest` | Plain JUnit | 3 | Pure unit tests, no Spring context, no real `MeterRegistry` — see monitoring.md |
+| `EventManagerApiGrpcTest` | `@SpringBootTest` (real socket, `grpc-api.enabled=true`/`port=0`) | 15 | Mocks `EventService`/`TicketService`/`VenueService`/`PerformerService`; real `JwtTokenProvider`-minted JWTs (`ROLE_USER` and `ROLE_ADMIN`) over a real gRPC channel — see grpc-api-server.md |
 
 **`VenueServiceTest`** covers: `getAllVenues` (list, empty), `getVenueById` (found/not found), `getVenuesByCity` (match, no match), `createVenue` (saves and returns DTO), `updateVenue` (updates all fields, throws when not found), `deleteVenue` (deletes when exists, throws when not found). Single dependency `VenueRepository`; constructor: `new VenueService(venueRepository)`.
 
