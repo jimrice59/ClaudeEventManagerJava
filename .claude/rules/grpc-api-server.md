@@ -122,6 +122,19 @@ false` in application-test.yml. Port `9091` exposed in `docker-compose.yml`'s `a
 alongside `8080` — distinct from the payment-service client's own target port `9095`
 (payment-service-grpc.md) and from this app's own HTTP port `8080`.
 
+**TLS (`grpc-api.tls.*`, `GrpcServerProperties.Tls`):** plaintext by default
+(`grpc-api.tls.enabled: false`). When enabled, `GrpcServerLifecycle.start()` calls
+`GrpcSslContexts.forServer(certChainFile, privateKeyFile).build()` and attaches it to the
+`NettyServerBuilder` before starting — grpc-java wants a PEM cert chain + PEM private key
+(`grpc-api.tls.cert-chain-file`/`private-key-file`, env `GRPC_API_TLS_CERT_CHAIN_FILE`/
+`GRPC_API_TLS_PRIVATE_KEY_FILE`), a different shape from `server.ssl.key-store`'s PKCS12/JKS
+keystore (that one covers the REST API/web UI's Tomcat HTTPS instead, auto-configured by Spring
+Boot — no code change needed there). `certs/generate-dev-certs.sh` generates a matching self-signed
+cert for local testing in both formats from one key pair; see certs/README.md. Both are off by
+default so no existing environment (local, docker-compose, current k8s) is affected until it opts
+in — this is orthogonal to the L7 TLS-termination discussion in docs/load-balancer-options.md,
+which is about an Ingress/load balancer in front of the app, not the app terminating TLS itself.
+
 ## Testing
 
 `EventManagerApiGrpcTest` (`@SpringBootTest`, `grpc-api.enabled=true`, `grpc-api.port=0` to get an

@@ -80,12 +80,28 @@ payment-service:
 grpc-api:
   enabled: ${GRPC_API_ENABLED:true}
   port: ${GRPC_API_PORT:9091}
+  # Plaintext by default. grpc-java wants a PEM cert chain + PEM private key (not a PKCS12/JKS
+  # keystore, so this is a different shape from server.ssl.* below) — see certs/README.md to
+  # generate a matching local dev cert.
+  tls:
+    enabled: ${GRPC_API_TLS_ENABLED:false}
+    cert-chain-file: ${GRPC_API_TLS_CERT_CHAIN_FILE:}
+    private-key-file: ${GRPC_API_TLS_PRIVATE_KEY_FILE:}
 
 oauth2:
   issuer: ${OAUTH2_ISSUER:http://localhost:8080}
 
 server:
   port: 8080
+  # Plaintext by default. Set to true with a real keystore to serve the REST API/web UI over
+  # HTTPS — see certs/README.md to generate a matching local dev cert (PKCS12, not the PEM pair
+  # grpc-api.tls.* above uses).
+  ssl:
+    enabled: ${SERVER_SSL_ENABLED:false}
+    key-store: ${SERVER_SSL_KEY_STORE:}
+    key-store-password: ${SERVER_SSL_KEY_STORE_PASSWORD:}
+    key-store-type: ${SERVER_SSL_KEY_STORE_TYPE:PKCS12}
+    key-alias: ${SERVER_SSL_KEY_ALIAS:}
 
 management:
   endpoints:

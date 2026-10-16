@@ -21,4 +21,20 @@ public class GrpcServerProperties {
 
     private boolean enabled = true;
     private int port = 9091;
+    private Tls tls = new Tls();
+
+    /**
+     * {@code grpc-api.tls.*} — off by default, so every existing environment keeps running
+     * plaintext gRPC until it opts in. grpc-java's {@code NettyServerBuilder} wants a PEM
+     * certificate chain and a PEM private key, not a PKCS12/JKS keystore (that's a different
+     * shape from {@code server.ssl.key-store}, which is why this isn't just reusing that key) —
+     * see certs/README.md for how to generate a matching dev cert.
+     */
+    @Getter
+    @Setter
+    public static class Tls {
+        private boolean enabled = false;
+        private String certChainFile = "";
+        private String privateKeyFile = "";
+    }
 }

@@ -2,12 +2,14 @@ package com.eventmanager.grpcserver;
 
 import io.grpc.Server;
 import io.grpc.ServerInterceptors;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 
@@ -23,6 +25,10 @@ import java.util.concurrent.TimeUnit;
  * under the test profile ({@code grpc-api.enabled: false} in application-test.yml) so
  * {@code mvn test} never binds a real socket — the same reason {@code rate-limit.enabled} is
  * false there too.
+ * <p>
+ * Plaintext by default; set {@code grpc-api.tls.enabled: true} (plus {@code cert-chain-file}/
+ * {@code private-key-file}, PEM format) to serve over TLS instead — see
+ * {@link GrpcServerProperties.Tls} and certs/README.md for a local dev cert.
  */
 @Slf4j
 @Component
@@ -46,15 +52,20 @@ public class GrpcServerLifecycle implements SmartLifecycle {
             return;
         }
         try {
-            server = NettyServerBuilder.forPort(properties.getPort())
+            NettyServerBuilder builder = NettyServerBuilder.forPort(properties.getPort())
                     .addService(ServerInterceptors.intercept(eventGrpcService, jwtServerInterceptor))
                     .addService(ServerInterceptors.intercept(ticketGrpcService, jwtServerInterceptor))
                     .addService(ServerInterceptors.intercept(venueGrpcService, jwtServerInterceptor))
-                    .addService(ServerInterceptors.intercept(performerGrpcService, jwtServerInterceptor))
-                    .build()
-                    .start();
+                    .addService(ServerInterceptors.intercept(performerGrpcService, jwtServerInterceptor));
+            if (properties.getTls().isEnabled()) {
+                builder.sslContext(GrpcSslContexts.forServer(
+                                new File(properties.getTls().getCertChainFile()),
+                                new File(properties.getTls().getPrivateKeyFile()))
+                        .build());
+            }
+            server = builder.build().start();
             running = true;
-            log.info("gRPC API server started on port {}", properties.getPort());
+            log.info("gRPC API server started on port {} (tls={})", properties.getPort(), properties.getTls().isEnabled());
         } catch (IOException e) {
             throw new IllegalStateException("Failed to start gRPC API server on port " + properties.getPort(), e);
         }
