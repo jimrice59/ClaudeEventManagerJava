@@ -12,6 +12,33 @@
 
 - **Envoy** — L7 proxy used as the data plane in service meshes (Istio, Consul Connect). Powerful but complex to configure standalone. Worth it if you're moving toward a service mesh; overkill otherwise.
 
+## Background: Kubernetes `ClusterIP` vs. `LoadBalancer` Services
+
+Relevant background for the sections below, since `k8s/deployment.yml`'s `event-manager-service`
+is a `LoadBalancer` Service today and the gRPC/Ingress discussion later in this doc depends on
+understanding the alternative.
+
+| | `ClusterIP` (the default `Service` type) | `LoadBalancer` |
+|---|---|---|
+| Reachability | Internal to the cluster only — a stable virtual IP (VIP) that kube-proxy routes to matching pod endpoints | Everything `ClusterIP` does, **plus** a real external IP/hostname reachable from outside the cluster |
+| How external access happens | Not possible directly — something else has to sit in front of it (an Ingress controller, `kubectl port-forward`, a `NodePort`) | Kubernetes asks the cloud provider's controller (the cloud-controller-manager) to provision an actual cloud load balancer (GCP Network LB, AWS ELB/NLB, Azure LB) that forwards to the Service |
+| Typical use | Backend-only services, or the thing an Ingress controller routes to | Direct external exposure of a single Service, with no Ingress controller to install or manage |
+| Cost / portability | Free, and works on any cluster including bare-metal/local (minikube, kind) | Usually provisions a separate, billed cloud resource per Service; doesn't exist on bare-metal without an add-on like MetalLB providing the integration |
+| Layer | L4 — balances TCP connections across pod endpoints | Still fundamentally L4 by default — the cloud load balancer it provisions is typically a Network/TCP load balancer, not an HTTP-aware one, unless you specifically reach for the cloud's separate L7/HTTP(S) load balancer product |
+
+That last row is why `LoadBalancer` alone doesn't solve the gRPC balancing problem covered later in
+this doc: both `ClusterIP` and a plain `LoadBalancer` Service balance at the connection level, so
+either one gives the gRPC port *connectivity* but not per-RPC balancing across replicas — see
+"gRPC-specific load balancing" below.
+
+`LoadBalancer` is the simpler choice when the goal is just "reachable from outside the cluster" —
+one field on the Service, no separate Ingress controller to stand up. That is why
+`k8s/deployment.yml` uses it: a straightforward way to expose `event-manager-service` externally
+for a project with no existing Ingress infrastructure. The trade-off is that it's the wrong choice
+once L7/gRPC-aware behavior is needed (path routing, per-RPC balancing, TLS termination with
+content inspection) — at that point the Service would switch to `ClusterIP`, with an Ingress
+controller (Traefik or NGINX, see below) placed in front of it instead.
+
 ## Kubernetes Ingress controllers
 
 Relevant since this project already has `k8s/deployment.yml`:
