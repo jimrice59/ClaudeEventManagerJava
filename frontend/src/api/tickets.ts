@@ -37,8 +37,19 @@ export async function releaseTicket(id: number): Promise<TicketResponse> {
   return data;
 }
 
-export async function purchaseTicket(id: number, userCredentials: string): Promise<TicketResponse> {
-  const { data } = await apiClient.post<TicketResponse>(`/tickets/${id}/purchase`, { userCredentials });
+/**
+ * Charges the ticket via the backend's payment-service integration. `paymentRequestId` is an
+ * optional idempotency key for the purchase attempt; the backend generates one if omitted.
+ */
+export async function purchaseTicket(
+  id: number,
+  paymentToken: string,
+  paymentRequestId?: string,
+): Promise<TicketResponse> {
+  const { data } = await apiClient.post<TicketResponse>(`/tickets/${id}/purchase`, {
+    paymentToken,
+    paymentRequestId,
+  });
   return data;
 }
 

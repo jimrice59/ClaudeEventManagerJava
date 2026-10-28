@@ -32,12 +32,12 @@ export function MyTicketsPage() {
   }, [page]);
 
   async function handlePurchase(id: number) {
-    const userCredentials = window.prompt("Enter payment details to complete purchase:");
-    if (!userCredentials) return;
+    const paymentToken = window.prompt("Enter a payment token to complete purchase:");
+    if (!paymentToken) return;
     setActionPending(true);
     setError(null);
     try {
-      await ticketsApi.purchaseTicket(id, userCredentials);
+      await ticketsApi.purchaseTicket(id, paymentToken);
       await load(page);
     } catch (err) {
       setError(extractErrorMessage(err));

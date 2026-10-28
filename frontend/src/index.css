@@ -9,6 +9,8 @@
   --accent-bg: rgba(124, 58, 237, 0.1);
   --danger: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.1);
+  --warning: #92690a;
+  --warning-bg: rgba(217, 155, 13, 0.15);
 
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
 
@@ -32,6 +34,8 @@
     --accent-bg: rgba(167, 139, 250, 0.15);
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
+    --warning: #facc15;
+    --warning-bg: rgba(250, 204, 21, 0.15);
   }
 }
 
@@ -380,6 +384,11 @@ button.small {
 .status-reserved {
   background: var(--accent-bg);
   color: var(--accent);
+}
+
+.status-paying {
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .status-sold {

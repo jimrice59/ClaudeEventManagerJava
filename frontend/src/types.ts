@@ -72,7 +72,7 @@ export interface EventListFilters {
   end?: string;
 }
 
-export type TicketStatus = "AVAILABLE" | "RESERVED" | "SOLD";
+export type TicketStatus = "AVAILABLE" | "RESERVED" | "PAYING" | "SOLD";
 
 export interface PerformerSummary {
   id: number;
@@ -90,10 +90,13 @@ export interface TicketResponse {
   performers: PerformerSummary[];
   status: TicketStatus;
   userId: number | null;
+  paymentRequestId: string | null;
+  datePurchased: string | null;
 }
 
 export interface PurchaseTicketRequest {
-  userCredentials: string;
+  paymentToken: string;
+  paymentRequestId?: string;
 }
 
 export interface PagedResponse<T> {
