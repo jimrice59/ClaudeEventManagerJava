@@ -1,5 +1,10 @@
 # Event Manager — Project Overview
 
+**Start here.** This is the entry point for a new developer — a map of what the project is, how
+it's put together, and where to go next. For implementation-level detail on any of the topics
+below, see **`docs/design-document.md`**, a single consolidated reference with its own table of
+contents; for Claude Code's own per-topic context, see `.claude/rules/*.md`.
+
 ## Project Summary
 
 **What it is:** A full-stack event ticketing platform — browse events/venues/performers, reserve
@@ -14,24 +19,35 @@ stack.
 | Backend | Spring Boot 3.2.5, Java 21 (virtual threads) |
 | Primary datastore | PostgreSQL (via Spring Data JPA) |
 | Cache | Redis (response caching + rate limiting) |
-| Secondary store | Cassandra (async dual-write archive) |
+| Secondary store | Cassandra (async dual-write archive, synchronous for sold-ticket backups) |
 | Messaging | Kafka (performer video events) |
 | Auth | Custom JWT (HS256) **and** a self-hosted OAuth 2.0 Authorization Server (RS256) |
 | Web UI | Thymeleaf + Bootstrap 5 (session-based) |
 | SPA | React 19 + TypeScript + Vite (JWT-based, separate from the Thymeleaf UI) |
-| RPC API | gRPC server (plain grpc-java, port 9091) — a second, binary-wire-format transport for the same domain API as REST |
+| RPC — server | gRPC server (plain grpc-java, port 9091) — a second, binary-wire-format transport for the same domain API as REST |
+| RPC — client | gRPC client to an external payment service (ticket purchase only) — unrelated to, and the opposite direction of, the RPC server above |
+| Transport security | TLS for both HTTP and gRPC, off by default (`server.ssl.*` / `grpc-api.tls.*`); `certs/generate-dev-certs.sh` generates a matching local dev cert for both |
 | Observability | Micrometer + Prometheus + Grafana |
 | Docs | springdoc-openapi / Swagger UI |
-| Deployment | Docker Compose (dev), Kubernetes manifests, optional Traefik reverse proxy |
+| Deployment | Docker Compose (dev), Kubernetes manifests (REST + gRPC Service ports), optional Traefik reverse proxy |
 
 ### Core Domain
 
 - **Events** belong to a **Venue** and have many **Performers** (with videos). Tickets are created
-  automatically at event-creation time — one row per unit of capacity — and archived to Cassandra
-  before being deleted with the event.
-- **Tickets** move through a strict state machine: `AVAILABLE → RESERVED → SOLD`, with cancellation
-  returning a sold ticket to `AVAILABLE` rather than a terminal "cancelled" state. Ownership is
-  always derived from the caller's JWT, never accepted from the client.
+  automatically at event-creation time — one row per unit of capacity.
+- **Tickets** move through a state machine: `AVAILABLE → RESERVED → PAYING → SOLD`, with
+  cancellation returning a sold ticket to `AVAILABLE` rather than a terminal "cancelled" state.
+  Ownership is always derived from the caller's JWT, never accepted from the client.
+- **Purchasing a ticket is a saga, not a single write.** `purchaseTicket` moves the ticket to
+  `PAYING`, calls an external payment service over gRPC (deadline 120s) with no database
+  transaction open during that call, then resolves to `SOLD` (stamping `datePurchased`) on
+  approval or back to `AVAILABLE` on decline. If the call itself fails, the ticket is deliberately
+  left `PAYING` rather than guessed at, for later reconciliation — see payment-service-grpc.md and
+  docs/payment-service-integration.md.
+- **Deleting an event archives only its `SOLD` tickets to Cassandra**, synchronously, before every
+  ticket for that event (regardless of status) is deleted from Postgres — a ticket is never
+  permanently removed without a confirmed archive existing first, but `AVAILABLE`/`RESERVED`/
+  `PAYING` tickets never had a sale worth preserving and are skipped.
 - Two parallel frontends (React SPA and Thymeleaf) hit the same backend through different auth
   models (JWT vs. session), sharing no code.
 - The backend itself is reachable over **three transports** — REST (`/api/v1/**`), the Thymeleaf
@@ -42,8 +58,7 @@ stack.
   metadata instead of an HTTP header) and the same `ROLE_ADMIN` gate as REST, just enforced by a
   hand-written interceptor/helper (`JwtServerInterceptor`, `GrpcCallSupport`) instead of Spring
   Security filters — see docs/grpc-api-support.md. This is unrelated to — and in the opposite
-  direction from — this app's own use of gRPC as a *client* to an external payment service during
-  ticket purchase (see payment-service-grpc.md).
+  direction from — this app's own use of gRPC as a *client* to the payment service above.
 
 ### What is a Spring Boot application?
 
@@ -74,10 +89,44 @@ SPA stands for Single-Page Application — a web app (like the React frontend in
 loads once and updates the page dynamically via JavaScript/API calls, rather than requesting a full
 new HTML page from the server on every navigation (which is what the Thymeleaf UI does instead).
 
+## Repository Layout
+
+| Path | What's there |
+|---|---|
+| `src/main/java/com/eventmanager/` | The Spring Boot backend — controllers, services, repositories, `grpcserver/` (gRPC API server), `payment/`/`config/PaymentGrpcConfig.java` (payment-service gRPC client), `cassandra/` (secondary-store entities/repos) |
+| `src/main/proto/` | Protobuf definitions — `event_manager_api.proto`/`venue_api.proto`/`performer_api.proto` (this app's own gRPC API) and `payment_service.proto` (the payment-service client contract) |
+| `src/main/resources/` | `application.yml` (+ `-dev`/`-test` profiles), Thymeleaf templates, static assets |
+| `frontend/` | Standalone Vite + React + TypeScript SPA, independent of the Thymeleaf UI |
+| `k8s/deployment.yml` | Kubernetes `Secret`/`ConfigMap`/`Deployment`/`Service` manifests (REST + gRPC Service ports) |
+| `certs/` | `generate-dev-certs.sh` — generates a matching self-signed TLS cert for local HTTPS + gRPC testing |
+| `docker-compose.yml`, `Dockerfile` | Local infrastructure stack and the two-stage container build |
+| `.claude/rules/` | 23 topic files of Claude Code context, most path-scoped so only relevant material loads per task |
+| `docs/` | This overview, `design-document.md`, and 20 supplementary docs — see **Documentation Structure** below |
+
+## Infrastructure (`docker-compose.yml`)
+
+| Service | Purpose |
+|---|---|
+| `postgres` | Primary datastore |
+| `redis` | Response caching + rate limiting |
+| `cassandra` + `cassandra-init` | Secondary archive store; the init container creates the keyspace on first run |
+| `kafka` | Performer video events (KRaft mode, no ZooKeeper) |
+| `app` | This application — exposes `8080` (REST + web UI) and `9091` (gRPC) |
+| `traefik` | Optional reverse proxy/load balancer, behind the `traefik` profile |
+| `prometheus`, `grafana` | Metrics scraping + dashboards |
+
+There is no payment-service container — `PaymentGrpcConfig`'s channel is lazy, so the app starts
+fine without one and only fails when a purchase is actually attempted. See build-and-run.md for
+the full command reference.
+
 ### Notable Engineering Decisions
 
 - **Virtual threads** instead of a reactive stack for Postgres concurrency; **`@Async` +
   virtual-thread executors** for the fire-and-forget Cassandra/Kafka side-writes.
+- **The ticket-purchase saga runs as two short transactions, not one** — wrapping the whole
+  purchase (including the up-to-120-second payment-service call) in a single `@Transactional`
+  would pin a Postgres connection and row lock for that entire duration; a `TransactionTemplate`
+  commits RESERVED→PAYING, makes the call with no transaction open, then commits the outcome.
 - **Redis sliding-window rate limiting** via an atomic Lua script (not a fixed-window counter, which
   would allow bursting) — fails *open* on Redis outages so the limiter itself is never a single
   point of failure.
@@ -85,23 +134,43 @@ new HTML page from the server on every navigation (which is what the Thymeleaf U
   breakdown, uptime) can be switched off via a `MeterFilter`, anticipating a future API gateway
   taking over that responsibility, while JVM/process-internal metrics always stay.
 - **Cassandra dual-write is deliberately asymmetric** — most writes are async/fire-and-forget, but
-  ticket *backups* before an event delete are synchronous, since an unconfirmed async write can't be
-  trusted to gate an irreversible deletion.
+  ticket *backups* before an event delete are synchronous and sold-tickets-only, since an
+  unconfirmed async write can't be trusted to gate an irreversible deletion, and a never-sold
+  ticket has nothing worth archiving.
+- **TLS is opt-in everywhere, not assumed** — both the HTTP and gRPC listeners default to
+  plaintext; turning TLS on for either is a config change plus a cert, not a code change, and one
+  script generates a self-signed cert in both shapes (PKCS12 for Tomcat, PEM for grpc-java) for
+  local testing.
 - Four Spring Security filter chains ordered by specificity (OAuth2 AS → form login → session-based
-  web UI → stateless API), with a rate-limit filter running ahead of all of them.
+  web UI → stateless API), with a rate-limit filter running ahead of all of them — none of this is
+  visible to gRPC traffic, which has its own, separate auth interceptor.
 
-### Documentation Structure
+## Documentation Structure
 
-- **`.claude/rules/`** — 20 topic files (per the Claude Code rules spec), most path-scoped so only
+- **`.claude/rules/`** — 23 topic files (per the Claude Code rules spec), most path-scoped so only
   relevant context loads per task.
-- **`docs/design-document.md`** — the same material as one consolidated, human-readable reference
-  with a table of contents.
-- **`docs/`** — supplementary docs (Kafka guides, Cassandra queries, load-balancer options, UX
-  review findings, the Redis-reservation-holds design memo, cross-project patterns/lessons, and
-  `grpc-api-support.md`/`grpc-api-exposure.md` covering this app's own gRPC API server).
+- **`docs/design-document.md`** — the next stop after this overview: the same material as one
+  consolidated, human-readable reference with a table of contents, covering every topic below in
+  implementation-level detail.
+- **`docs/`** — 20 supplementary docs, roughly grouped:
+  - *What's actually built* — `grpc-api-support.md`/`grpc-api-exposure.md` (this app's own gRPC
+    server), `payment-service-integration.md` (the payment-service gRPC client and purchase saga),
+    `cassandra-queries.md`, `kafka-consumer-guide.md`/`kafka-messages.md`/`kafka-topic-creation.md`.
+  - *Design memos and alternatives explored, not (or not fully) implemented* —
+    `redis-reservation-holds.md` (Redis-backed ticket holds instead of Postgres row-locking),
+    `redis-rate-limiting-algorithms.md` (survey of Redis rate-limiting algorithms against the one
+    in use), `cassandra-cdc-alternative.md`/`elasticsearch-cdc-alternative.md` (CDC vs. app-level
+    dual-write), `elasticsearch-search-extension.md`, `load-balancer-options.md` (Traefik/NGINX/
+    Ingress and gRPC-aware load balancing for Kubernetes), `elk-efk-stack.md`, `kafka-kraft-explainer.md`,
+    and `grpc-service-exposure.md` (the original gRPC proposal — superseded by the two "what's
+    actually built" gRPC docs above once the feature shipped).
+  - *Cross-cutting* — `other-java-backend-technologies.md`, `typescript-vs-javascript.md` (learning
+    explainers), `ux-review-findings.md`, `patterns-and-lessons.md` (cross-project log).
 
 ### Current State
 
-95/95 backend tests passing. Recent work added the full ticket reservation lifecycle, Redis rate
-limiting, the edge-metrics toggle, structured logging across all controllers/services, and matching
-updates to both the standalone Java client library and the React frontend.
+115/115 backend tests passing. Recent work added this app's own gRPC API server (a third transport
+alongside REST and the web UI), a gRPC client integration with an external payment service (the
+`PAYING` status and two-transaction purchase saga), a Cassandra sold-tickets-only archive sweep on
+event deletion, optional TLS for both the HTTP and gRPC listeners, and matching Kubernetes/Docker
+exposure for the new gRPC port.
