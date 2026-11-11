@@ -174,15 +174,14 @@ a:hover {
   letter-spacing: 0.2px;
 }
 
-/* Tagline styled for speed: sporty italic (Kanit), trailing motion streaks, a lightning bolt, and
-   a one-time dash-in from the left on load (skipped under prefers-reduced-motion). */
+/* Tagline styled for speed: sporty italic (Kanit) led by a speedometer whose needle sits in the
+   red zone, sweeping up into it once on load (skipped under prefers-reduced-motion). */
 .brand-tagline {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-top: 3px;
   color: #ffedd5;
-  animation: tagline-dash 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
 }
 
 .tagline-text {
@@ -193,38 +192,47 @@ a:hover {
   letter-spacing: 0.4px;
 }
 
-.speed-streaks {
+.speedometer {
   flex-shrink: 0;
-  stroke-width: 2.4;
+  fill: none;
+  stroke-width: 2.8;
   stroke-linecap: round;
 }
 
-.speed-streaks path:nth-child(odd) {
-  stroke: #fdba74;
+.speedometer .gauge {
+  stroke: #ffedd5;
 }
 
-.speed-streaks path:nth-child(even) {
-  stroke: #fed7aa;
+.speedometer .gauge-redline {
+  stroke: #f87171;
 }
 
-.speed-bolt {
-  flex-shrink: 0;
-  fill: #fde047;
+.speedometer .needle {
+  stroke: #fde047;
+  stroke-width: 2.6;
+  /* Pivot on the hub (12, 17 in the SVG's own coordinates). */
+  transform-box: view-box;
+  transform-origin: 12px 17px;
+  animation: needle-sweep 0.9s cubic-bezier(0.3, 0.7, 0.2, 1.15) 0.2s both;
 }
 
-@keyframes tagline-dash {
+.speedometer .hub {
+  fill: #ffedd5;
+  stroke: none;
+}
+
+/* From the low end of the dial up into the red zone, overshooting slightly like a real needle. */
+@keyframes needle-sweep {
   from {
-    opacity: 0;
-    transform: translateX(-18px);
+    transform: rotate(-110deg);
   }
   to {
-    opacity: 1;
-    transform: translateX(0);
+    transform: rotate(0deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .brand-tagline {
+  .speedometer .needle {
     animation: none;
   }
 }
