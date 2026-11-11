@@ -91,7 +91,7 @@ export function NavBar() {
                 My Tickets
               </NavLink>
               <NavLink to="/transactions" className={tabClass}>
-                Transactions
+                My Transactions
               </NavLink>
             </>
           )}

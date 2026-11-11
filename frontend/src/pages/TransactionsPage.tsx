@@ -42,7 +42,7 @@ export function TransactionsPage() {
   return (
     <div>
       <div className="page-header">
-        <h1>Transactions</h1>
+        <h1>My Transactions</h1>
         <button onClick={() => load(page)} disabled={loading} className="button small">
           Refresh
         </button>
