@@ -42,6 +42,17 @@ the only place that touches Cassandra repository types directly (see cassandra-d
   call). Bound from `payment-service.*` in `application.yml`
   (`PAYMENT_SERVICE_HOST`/`PAYMENT_SERVICE_PORT`/`PAYMENT_SERVICE_DEADLINE`/
   `PAYMENT_SERVICE_CONNECT_TIMEOUT` env vars).
+  Also `enabled` (`PAYMENT_SERVICE_ENABLED`, default `true`): the toggle for the outbound call.
+  When `false`, `PaymentServiceClient.purchaseTicket`/`getPaymentStatus` return before touching
+  the stub with a simulated `APPROVED` `PaymentOutcome` (`confirmationId` = `SIMULATED-<uuid>`,
+  `idempotencyToken` = the `paymentRequestId`). The switch lives in the client rather than in
+  `TicketService`, so the purchase saga runs exactly as normal (RESERVED → PAYING → SOLD,
+  `datePurchased` stamped, a `PURCHASE` `TicketOperation` recorded). That keeps simulated sales
+  visible in the audit trail, and they're findable by the prefix:
+  `SELECT * FROM ticket_operations WHERE payment_confirmation_details LIKE 'SIMULATED-%'`.
+  A `WARN` is logged at startup while it's disabled. `PaymentGrpcConfig` still builds the channel
+  either way. It's lazy, so it never connects while disabled. **Dev/demo only:** disabled in a
+  real deployment means every purchase succeeds without anyone being charged.
 - `PaymentGrpcConfig` (`com.eventmanager.config`) — builds the `ManagedChannel` (plaintext, no TLS —
   matches every other local/dev-profile infrastructure connection in this project) and the
   `PaymentServiceGrpc.PaymentServiceBlockingStub` bean from it. Channel creation is lazy — it does

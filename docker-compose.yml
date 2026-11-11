@@ -111,6 +111,10 @@ services:
       REDIS_HOST: redis
       CASSANDRA_HOST: cassandra
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      # No payment service runs in this compose stack, so purchases are simulated (always
+      # approved, never charged) by default. Override with PAYMENT_SERVICE_ENABLED=true plus
+      # PAYMENT_SERVICE_HOST/PORT to call a real one. See payment-service-grpc.md.
+      PAYMENT_SERVICE_ENABLED: ${PAYMENT_SERVICE_ENABLED:-false}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.event-manager.rule=Host(`localhost`)"
