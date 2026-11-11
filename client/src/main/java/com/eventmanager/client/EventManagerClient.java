@@ -123,8 +123,18 @@ public class EventManagerClient {
         return restTemplate.exchange(baseUrl + "/api/v1/events", HttpMethod.POST, authEntity(request), EventResponse.class).getBody();
     }
 
-    public EventResponse updateEvent(Long id, EventRequest request) {
+    /** Updates an event. {@code ticketsTotal} isn't part of the request: it's fixed at creation. */
+    public EventResponse updateEvent(Long id, UpdateEventRequest request) {
         return restTemplate.exchange(baseUrl + "/api/v1/events/" + id, HttpMethod.PUT, authEntity(request), EventResponse.class).getBody();
+    }
+
+    /**
+     * @deprecated use {@link #updateEvent(Long, UpdateEventRequest)}. Kept so existing callers
+     * still compile; {@code request.ticketsTotal} is dropped, since the server never changes it.
+     */
+    @Deprecated
+    public EventResponse updateEvent(Long id, EventRequest request) {
+        return updateEvent(id, UpdateEventRequest.from(request));
     }
 
     /** Live count of AVAILABLE tickets for the event, computed by the server from Postgres — not a stored field. */

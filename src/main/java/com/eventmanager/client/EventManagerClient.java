@@ -239,6 +239,16 @@ public class EventManagerClient {
                 new ParameterizedTypeReference<PagedResponse<TicketResponse>>() {}).getBody();
     }
 
+    /**
+     * Reserves the next available ticket for an event, letting the server choose which one
+     * ({@code POST /api/v1/events/{eventId}/tickets/reserve}). Requires {@link #login} or
+     * {@link #setToken}. Throws {@code HttpClientErrorException} with 404 if the event doesn't
+     * exist, or 409 if no ticket is available.
+     */
+    public TicketResponse reserveAvailableTicket(Long eventId) {
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
     public TicketResponse reserveTicket(Long id) {
         return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/reserve", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
     }

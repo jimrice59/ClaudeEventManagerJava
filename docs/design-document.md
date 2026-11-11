@@ -1091,7 +1091,7 @@ Holds the performer, event, and ticket-operation repositories with `@Autowired(r
 
 ### EventManagerClient
 
-`com.eventmanager.client.EventManagerClient` is a `RestTemplate`-based client that covers the API endpoints, with one gap: it has no method yet for `POST /api/v1/events/{id}/tickets/reserve`. It is intended for use by other Spring applications that need to call this service programmatically. A second copy lives in the standalone `client/` Maven module; the two have drifted slightly (noted in the table below).
+`com.eventmanager.client.EventManagerClient` is a `RestTemplate`-based client that covers every API endpoint. It is intended for use by other Spring applications that need to call this service programmatically. A second, smaller copy lives in the standalone `client/` Maven module: it covers auth, events, venues, and performers, but has **no ticket methods at all** (and no ticket DTOs).
 
 **Construction:**
 
@@ -1127,7 +1127,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `searchEvents(venueId, performerId, start, end)` | GET | `/api/v1/events?venueId=&performerId=&start=&end=` | public — any argument may be null; the non-null ones are ANDed (both client copies: `src/main/.../client` and the `client/` module) |
 | `getEvent(id)` | GET | `/api/v1/events/{id}` | public |
 | `createEvent(EventRequest)` | POST | `/api/v1/events` | ADMIN |
-| `updateEvent(id, UpdateEventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN (the `client/` module copy still takes `EventRequest`; its `ticketsTotal` is ignored server-side) |
+| `updateEvent(id, UpdateEventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN (both copies; the `client/` module also keeps a `@Deprecated updateEvent(id, EventRequest)` overload, which drops `ticketsTotal` via `UpdateEventRequest.from(...)`, so existing callers still compile) |
 | `getNumAvailableTickets(id)` | GET | `/api/v1/events/{id}/tickets/available/count` | public |
 | `deleteEvent(id)` | DELETE | `/api/v1/events/{id}` | ADMIN |
 | `getVenues()` | GET | `/api/v1/venues` | public |
@@ -1149,6 +1149,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getAvailableTickets(eventId, page, size)` | GET | `/api/v1/events/{id}/tickets/available?page=&size=` | public |
 | `getMyTickets(page, size)` | GET | `/api/v1/tickets/me?page=&size=` | authenticated |
 | `reserveTicket(id)` | POST | `/api/v1/tickets/{id}/reserve` | authenticated |
+| `reserveAvailableTicket(eventId)` | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated — the server picks the ticket; 409 (`HttpClientErrorException.Conflict`) if none is available |
 | `releaseTicket(id)` | POST | `/api/v1/tickets/{id}/release` | authenticated |
 | `purchaseTicket(id, paymentToken, paymentRequestId)` | POST | `/api/v1/tickets/{id}/purchase` | authenticated |
 | `cancelTicket(id)` | POST | `/api/v1/tickets/{id}/cancel` | authenticated |
@@ -1172,6 +1173,7 @@ There is no `createTicket`/`deleteTicket` method — tickets have no external cr
 | `PaymentServiceClientTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Mocks the generated (final) `PaymentServiceBlockingStub`, which Mockito 5's inline mock maker allows. With `payment-service.enabled=false`, both methods return a simulated `APPROVED` and never touch the stub; enabled (the default), calls the stub and maps the proto response |
 | `WebTicketControllerTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 4 | Calls `WebTicketController.purchase()` directly with a `RedirectAttributesModelMap`: approved (`SOLD`) → `successMessage`; declined (returned normally as `AVAILABLE`) → `errorMessage` only; 502 → `errorMessage` mentioning `PAYING`; 409 → its own message |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
+| `EventManagerClientTest` | Plain JUnit + `MockRestServiceServer` | 3 | No real server: `reserveAvailableTicket` posts to `/api/v1/events/{id}/tickets/reserve` with the bearer token, a 409 surfaces as `HttpClientErrorException.Conflict`, and `searchEvents` sends only its non-null filters. The `client/` module copy has no test dependencies and isn't tested |
 | `EventControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 5 | Mocks `EventService`/`TicketService`: no params → `getAllEvents`; all four params → one combined `EventSearchCriteria`; `start` after `end` → 400; malformed date / non-numeric id → 400, not 500 |
 | `RateLimiterTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Pure unit tests, no Spring context, no Redis |
 | `EdgeMetricsConfigTest` | Plain JUnit | 3 | Pure unit tests, no Spring context, no real `MeterRegistry` |
