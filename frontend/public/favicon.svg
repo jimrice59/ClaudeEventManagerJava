@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+ <!-- teal tile so the cream snout doesn't wash out against light browser tabs -->
+ <defs><radialGradient id="tile" cx="35%" cy="30%" r="75%"><stop offset="0" stop-color="#1aa39a"/><stop offset="0.7" stop-color="#0f766e"/></radialGradient></defs>
+ <rect width="120" height="120" rx="26" fill="url(#tile)"/>
  <g transform="rotate(-6 60 62)">
   <!-- far ear (narrower, behind) -->
   <path d="M30 50 L31 12 L55 32 Z" fill="#c2410c"/>
