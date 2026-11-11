@@ -11,6 +11,13 @@ export MVN=/Users/jimrice1959/.sdkman/candidates/maven/current/bin/mvn
 # App only — starts infrastructure + app container (port 8080); no Traefik
 docker compose up -d
 
+# After pulling or changing backend code: rebuild the app image. Plain `up -d` reuses an existing
+# event-manager:latest image and does NOT rebuild it, so the container silently keeps running old
+# code — e.g. a stale image still mapping the removed `events.tickets_available` column fails every
+# events query with `column e1_0.tickets_available does not exist`. Only the app container is
+# recreated; infrastructure containers and their data are untouched.
+docker compose up -d --build app
+
 # App + Traefik — adds Traefik reverse proxy (port 80) and dashboard (port 9000)
 docker compose --profile traefik up -d
 
