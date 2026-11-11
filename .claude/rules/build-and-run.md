@@ -18,6 +18,21 @@ docker compose up -d
 # recreated; infrastructure containers and their data are untouched.
 docker compose up -d --build app
 
+# A long-lived Postgres volume can also go stale in a way rebuilding can't fix: there is no
+# migration tool, and `ddl-auto: update` adds new columns but never rewrites an existing CHECK
+# constraint. Hibernate generates one per @Enumerated(STRING) column when the table is first
+# created, so adding an enum value later (e.g. TicketStatus.PAYING, TicketOperationType
+# PAYMENT_DECLINED/PAYMENT_ERROR) fails with `violates check constraint "tickets_status_check"`
+# (or `ticket_operations_operation_check`). Compare the constraints with the Java enums:
+#   docker exec eventmanager-postgres psql -U postgres -d eventdb -c \
+#     "SELECT conrelid::regclass, pg_get_constraintdef(oid) FROM pg_constraint WHERE contype='c';"
+# and widen the stale one, e.g.:
+#   ALTER TABLE tickets DROP CONSTRAINT tickets_status_check;
+#   ALTER TABLE tickets ADD CONSTRAINT tickets_status_check
+#     CHECK (status IN ('AVAILABLE','RESERVED','PAYING','SOLD'));
+# (Or `docker compose down -v` to drop all volumes and let Hibernate recreate everything — this
+# deletes all data, including registered users.)
+
 # App + Traefik — adds Traefik reverse proxy (port 80) and dashboard (port 9000)
 docker compose --profile traefik up -d
 
