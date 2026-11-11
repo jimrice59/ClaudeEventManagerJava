@@ -19,6 +19,7 @@ paths:
 | `EventServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 18 | Pure unit tests, no Spring context |
 | `PerformerServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 13 | Pure unit tests, no Spring context |
 | `TicketServiceTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 35 | Pure unit tests, no Spring context — see ticket-status-state-machine.md |
+| `WebTicketControllerTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 4 | Pure unit tests, no Spring context; calls `WebTicketController.purchase()` directly with a `RedirectAttributesModelMap` and asserts the flash message per outcome — approved (`SOLD`) → `successMessage`, declined (returned normally as `AVAILABLE`, not thrown) → `errorMessage` only, `PaymentServiceUnavailableException` → `errorMessage` mentioning `PAYING`, `TicketPaymentInProgressException` → its own message. Note `getFlashAttributes()` is `Map<String, ?>`, so assert with `.get(key)).isEqualTo(...)` rather than `containsEntry` (won't compile) |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
 | `RateLimiterTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Pure unit tests, no Spring context, no Redis — see rate-limiting.md |
 | `EdgeMetricsConfigTest` | Plain JUnit | 3 | Pure unit tests, no Spring context, no real `MeterRegistry` — see monitoring.md |

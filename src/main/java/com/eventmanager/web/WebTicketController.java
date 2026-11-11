@@ -1,7 +1,9 @@
 package com.eventmanager.web;
 
+import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
+import com.eventmanager.model.TicketStatus;
 import com.eventmanager.service.TicketService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -71,15 +73,25 @@ public class WebTicketController {
         log.debug("Received request to purchase ticket id={} (web UI)", id);
         try {
             // No paymentRequestId from this form — TicketService generates one.
-            ticketService.purchaseTicket(id, paymentToken, null);
-            redirectAttrs.addFlashAttribute("successMessage", "Ticket purchased!");
+            TicketResponse result = ticketService.purchaseTicket(id, paymentToken, null);
+            // A decline is not an exception: purchaseTicket returns normally with the ticket
+            // moved back to AVAILABLE, so the outcome has to be read off the returned status.
+            if (result.getStatus() == TicketStatus.SOLD) {
+                redirectAttrs.addFlashAttribute("successMessage", "Ticket purchased!");
+            } else {
+                log.info("Purchase declined for ticket id={} (status now {})", id, result.getStatus());
+                redirectAttrs.addFlashAttribute("errorMessage",
+                        "Your payment was declined and the ticket has been released. "
+                                + "Reserve it again to try a different payment method.");
+            }
         } catch (IllegalArgumentException | AccessDeniedException | TicketPaymentInProgressException ex) {
             log.warn("Purchase failed for ticket id={}: {}", id, ex.getMessage());
             redirectAttrs.addFlashAttribute("errorMessage", ex.getMessage());
         } catch (PaymentServiceUnavailableException ex) {
             log.error("Purchase could not be confirmed for ticket id={}: {}", id, ex.getMessage());
             redirectAttrs.addFlashAttribute("errorMessage",
-                    "We couldn't confirm your payment in time. Your ticket is held — check back shortly before trying again.");
+                    "We couldn't confirm your payment with the payment service, so your ticket is held as PAYING. "
+                            + "It can't be retried or released from here — please contact support to resolve it.");
         }
         return "redirect:/ui/tickets/me";
     }
