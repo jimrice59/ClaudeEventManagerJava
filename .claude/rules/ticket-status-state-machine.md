@@ -159,7 +159,8 @@ paymentRequestId)` signature. `PaymentServiceClient`, `PaymentCacheService`, `Pl
 and `CacheManager` are added as plain Mockito `@Mock`s to the constructor
 (`new TicketService(ticketRepository, eventRepository, userRepository, ticketOperationRepository,
 cassandraAsyncWriter, paymentServiceClient, paymentCacheService, transactionManager,
-cacheManager)`) — none need stubbing for the saga's transactional plumbing to work: an unstubbed
+cacheManager, reservationProperties)`, where `reservationProperties` is a real
+`TicketReservationProperties` rather than a mock, so retry tests can call `setMaxRetries(...)`) — none need stubbing for the saga's transactional plumbing to work: an unstubbed
 `PlatformTransactionManager` mock returns `null` from `getTransaction`, which `TransactionTemplate`
 just passes through to `beginPayment`/`completePayment` and then to `commit`/`rollback`, none of
 which dereference it — see docs/payment-service-integration.md. Two notable Mockito pitfalls

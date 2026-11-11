@@ -42,8 +42,11 @@ All service methods are explicitly annotated — no implicit transaction boundar
 
 Cassandra writes in `PerformerService` and `EventService` happen after the JPA call and are outside the Postgres transaction boundary. A Cassandra failure after Postgres commits is not rolled back — accepted limitation of dual-store without a distributed transaction coordinator.
 
-**One deliberate exception to "every service method is `@Transactional`-annotated"**:
-`TicketService.purchaseTicket` is a saga spanning a slow external call (a gRPC call to the payment
+**Two deliberate exceptions to "every service method is `@Transactional`-annotated"**, both in
+`TicketService`. The smaller one is `reserveAvailableTicket`: it may back off and retry (see
+ticket-status-state-machine.md), so it runs each attempt as its own short `TransactionTemplate`
+transaction rather than holding one connection open across the backoff sleeps. The main one is
+`TicketService.purchaseTicket`, a saga spanning a slow external call (a gRPC call to the payment
 service, with a 120-second deadline) and is *not* `@Transactional` itself — wrapping the whole
 thing in one transaction would pin a HikariCP connection and a row lock on the ticket for the
 call's full duration. Instead it builds a `TransactionTemplate` from an injected
@@ -54,3 +57,9 @@ inside the `TransactionTemplate` lambda — `@Transactional` would silently do n
 since self-invocation bypasses the Spring AOP proxy the annotation relies on, the same reason
 `@Async` requires a different bean (see above). See payment-service-grpc.md and
 docs/payment-service-integration.md, "Why two transactions instead of one".
+
+**Row locks in ticket transitions:** every `TicketService` status transition loads its ticket with
+`SELECT ... FOR UPDATE` (`TicketRepository.findByIdForUpdate`), so the lock lives exactly as long as
+that method's transaction (or, in the purchase saga, each of its two `TransactionTemplate` steps).
+Locking is pessimistic because `Ticket` has no `@Version` column, and adding one to an existing
+table without a migration tool would leave it NULL on every row.

@@ -13,6 +13,9 @@ paths:
 |---|---|---|
 | `ResourceNotFoundException` | 404 | Message from exception |
 | `AccessDeniedException` | 403 | Fixed message "Access denied"; must be declared before the `Exception` catch-all or `@PreAuthorize` rejections return 500 |
+| `TicketPaymentInProgressException` | 409 | A purchase attempt is already in flight for this ticket (status is already `PAYING`) — see payment-service-grpc.md |
+| `NoTicketsAvailableException` | 409 | `POST /api/v1/events/{id}/tickets/reserve` found no `AVAILABLE` ticket to reserve (sold out, or still all locked after the configured retries) — see ticket-status-state-machine.md |
+| `PaymentServiceUnavailableException` | 502 | The payment-service gRPC call itself failed (timeout/connection error); the ticket is left `PAYING`, and nothing reconciles it automatically yet |
 | `BadCredentialsException` | 401 | Fixed message "Invalid username or password" |
 | `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email and by `EventService` for invalid ticket counts, and by `EventSearchCriteria` when `start` is after `end` |
 | `MethodArgumentTypeMismatchException` | 400 | A query/path parameter that can't be converted to its type (`?start=June-1st`, `?venueId=abc`, `/events/abc`): "Invalid value 'X' for parameter 'p': expected Long", plus an ISO-8601 hint for date-time params. Previously fell through to the catch-all as a 500 |

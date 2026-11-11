@@ -32,7 +32,7 @@ HTTP Request
   │    matches /ui/** only
   │    → Spring Security form login (/ui/login)
   │    → Session + CSRF enabled
-  │    → WebEventController / WebVenueController / WebPerformerController / WebAuthController
+  │    → WebEventController / WebVenueController / WebPerformerController / WebTicketController / WebAuthController
   │    → Same services as REST API
   │    → Thymeleaf template → HTML response
   │
@@ -43,8 +43,8 @@ HTTP Request
        → Controller (validates input with @Valid)
        → Service (business logic, Redis cache annotations)
        → Repository (JPA / PostgreSQL)
-            ↓ (event and performer writes, fire-and-forget)
-       → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository)
+            ↓ (event, performer, and ticket-operation writes, fire-and-forget)
+       → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository / TicketOperationCassandraRepository)
             ↓ (performer video add/delete, fire-and-forget with retry)
        → PerformerVideoEventPublisher (@Async → kafkaExecutor thread pool → KafkaTemplate → performer-video-events topic)
 ```
@@ -63,7 +63,7 @@ HTTP Request
 | POST | `/oauth2/revoke` | Revoke a token |
 | POST | `/oauth2/introspect` | Introspect a token |
 
-**Application endpoints** (handled by `@Order(3)` API filter chain):
+**Application endpoints** (handled by the `@Order(4)` API filter chain):
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|

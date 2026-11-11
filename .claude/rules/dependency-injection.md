@@ -21,7 +21,7 @@ Every service, controller, and security class declares dependencies as `private 
 | `EventService` | `EventRepository`, `VenueRepository`, `PerformerRepository`, `VenueService`, `PerformerService`, `CassandraAsyncWriter`, `TicketService` |
 | `VenueService` | `VenueRepository` |
 | `PerformerService` | `PerformerRepository`, `VideoRepository`, `CassandraAsyncWriter`, `PerformerVideoEventPublisher` |
-| `TicketService` | `TicketRepository`, `EventRepository`, `UserRepository`, `TicketOperationRepository`, `CassandraAsyncWriter`, `PaymentServiceClient`, `PaymentCacheService`, `PlatformTransactionManager`, `CacheManager` |
+| `TicketService` | `TicketRepository`, `EventRepository`, `UserRepository`, `TicketOperationRepository`, `CassandraAsyncWriter`, `PaymentServiceClient`, `PaymentCacheService`, `PlatformTransactionManager`, `CacheManager`, `TicketReservationProperties` |
 | `UserDetailsServiceImpl` | `UserRepository` |
 | `JwtAuthenticationFilter` | `JwtTokenProvider`, `UserDetailsServiceImpl` |
 | `SecurityConfig` | `UserDetailsServiceImpl`, `JwtAuthenticationFilter` |
