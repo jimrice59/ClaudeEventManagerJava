@@ -52,7 +52,17 @@ The nav bar now shows the username and role, plus a **Log out** button. Concrete
 
 | Action | Where |
 |---|---|
-| Reserve or release tickets | Ticket form on `/events/:id` |
+| Browse an event's available tickets and reserve one | Available Tickets list on `/events/:id` |
+| See every ticket you own, across all events | **My Tickets** (`/my-tickets`) in the nav bar |
+| Purchase, or release, a reserved ticket | **Purchase** / **Release** on `/my-tickets` |
+| Cancel a purchased ticket | **Cancel** on `/my-tickets` |
+
+**Purchasing.** Clicking **Purchase** on a reserved ticket opens an inline checkout showing the event's ticket price and asking for a payment token (passed through to the backend's payment service). The outcome is one of:
+
+- **Approved** — the ticket becomes `SOLD` and a confirmation banner appears.
+- **Declined** — the ticket is released back to `AVAILABLE` (it disappears from My Tickets); reserve it again to retry with a different payment method.
+- **Payment service unreachable / timed out** — the ticket is left `PAYING`, because the charge may have gone through even though the backend never heard back. The UI does not offer retry or release for a `PAYING` ticket (the backend rejects both, to avoid a double charge or double sale); it has to be resolved by an operator.
+- **Network error before any response** — the checkout stays open and can be retried. The checkout generates one `paymentRequestId` when it opens and reuses it on every retry, so a retry of a request that did reach the backend is recognized as the same payment rather than a new one.
 
 The client never has to re-enter credentials for this — once logged in, every API call automatically carries the session's JWT.
 
@@ -66,7 +76,7 @@ A subset of clients — those whose account has `ROLE_ADMIN` — additionally se
 - Create / edit / delete **performers**, including adding or removing video URLs on a performer's detail page
 - Create / edit / delete **venues**
 
-Being a plain `ROLE_USER` is not enough for any of the above, even though the account is logged in — only the ticket reserve/release action in the previous section is available to non-admin accounts. A `ROLE_USER` client who tries to reach an admin screen directly (e.g. typing `/events/new` in the address bar) is silently redirected away — the UI hides what it knows the account can't do. This is a convenience, not the actual security boundary: the backend independently rejects any unauthorized request with a 403, whether or not it came through this UI.
+Being a plain `ROLE_USER` is not enough for any of the above, even though the account is logged in — only the ticket actions in the previous section are available to non-admin accounts. A `ROLE_USER` client who tries to reach an admin screen directly (e.g. typing `/events/new` in the address bar) is silently redirected away — the UI hides what it knows the account can't do. This is a convenience, not the actual security boundary: the backend independently rejects any unauthorized request with a 403, whether or not it came through this UI.
 
 ### 5. Errors
 
@@ -78,7 +88,7 @@ If a request fails — bad credentials, a validation error, insufficient tickets
 |---|---|---|---|
 | Browse events/performers/venues | ✅ | ✅ | ✅ |
 | Register / log in | ✅ | — | — |
-| Reserve/release tickets | ❌ | ✅ | ✅ |
+| Reserve/release/purchase/cancel tickets, My Tickets | ❌ | ✅ | ✅ |
 | Create/edit/delete events | ❌ | ❌ | ✅ |
 | Create/edit/delete performers, manage videos | ❌ | ❌ | ✅ |
 | Create/edit/delete venues | ❌ | ❌ | ✅ |

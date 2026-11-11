@@ -402,3 +402,25 @@ button.small {
   gap: 12px;
   margin-top: 16px;
 }
+
+/* Inline checkout panel on My Tickets — spans the full width of its .ticket-list row */
+.purchase-panel {
+  flex-basis: 100%;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-top: 4px;
+  gap: 10px;
+}
+
+.purchase-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.purchase-price {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--text-h);
+}

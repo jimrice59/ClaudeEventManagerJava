@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { PurchasePanel, type PurchaseResult } from "../components/PurchasePanel";
 import type { PagedResponse, TicketResponse } from "../types";
 
 const PAGE_SIZE = 20;
@@ -13,6 +14,8 @@ export function MyTicketsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionPending, setActionPending] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [purchasingId, setPurchasingId] = useState<number | null>(null);
 
   async function load(targetPage: number) {
     setLoading(true);
@@ -31,24 +34,35 @@ export function MyTicketsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  async function handlePurchase(id: number) {
-    const paymentToken = window.prompt("Enter a payment token to complete purchase:");
-    if (!paymentToken) return;
-    setActionPending(true);
+  async function handlePurchaseDone(result: PurchaseResult) {
+    setPurchasingId(null);
     setError(null);
-    try {
-      await ticketsApi.purchaseTicket(id, paymentToken);
-      await load(page);
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
-      setActionPending(false);
+    setSuccessMessage(null);
+    switch (result.kind) {
+      case "approved":
+        setSuccessMessage(`Payment approved — ticket #${result.ticket.id} for ${result.ticket.eventName} is yours.`);
+        break;
+      case "declined":
+        setError("Payment was declined. The ticket has been released; reserve it again to try another payment method.");
+        break;
+      case "pending":
+        setError(
+          "We couldn't confirm the payment with the payment service, so the ticket is held as PAYING. " +
+            "It can't be retried or released from here (that could double-charge or double-sell it) — " +
+            "contact support to resolve it.",
+        );
+        break;
+      case "changed":
+        setError(result.message);
+        break;
     }
+    await load(page);
   }
 
   async function handleRelease(id: number) {
     setActionPending(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await ticketsApi.releaseTicket(id);
       await load(page);
@@ -60,9 +74,10 @@ export function MyTicketsPage() {
   }
 
   async function handleCancel(id: number) {
-    if (!confirm("Cancel this ticket? This cannot be undone.")) return;
+    if (!confirm("Cancel this ticket? It will be released back to the event.")) return;
     setActionPending(true);
     setError(null);
+    setSuccessMessage(null);
     try {
       await ticketsApi.cancelTicket(id);
       await load(page);
@@ -77,9 +92,13 @@ export function MyTicketsPage() {
     <div>
       <div className="page-header">
         <h1>My Tickets</h1>
+        <button onClick={() => load(page)} disabled={loading} className="button small">
+          Refresh
+        </button>
       </div>
 
       <ErrorBanner message={error} />
+      {successMessage && <div className="success-banner">{successMessage}</div>}
 
       {loading ? (
         <p>Loading...</p>
@@ -102,13 +121,24 @@ export function MyTicketsPage() {
                 <div className="button-row">
                   {ticket.status === "RESERVED" && (
                     <>
-                      <button onClick={() => handlePurchase(ticket.id)} disabled={actionPending} className="button small">
+                      <button
+                        onClick={() => setPurchasingId(ticket.id)}
+                        disabled={actionPending || purchasingId !== null}
+                        className="button small"
+                      >
                         Purchase
                       </button>
-                      <button onClick={() => handleRelease(ticket.id)} disabled={actionPending} className="button small">
+                      <button
+                        onClick={() => handleRelease(ticket.id)}
+                        disabled={actionPending || purchasingId !== null}
+                        className="button small"
+                      >
                         Release
                       </button>
                     </>
+                  )}
+                  {ticket.status === "PAYING" && (
+                    <span className="muted small">Payment unconfirmed — contact support</span>
                   )}
                   {ticket.status === "SOLD" && (
                     <button onClick={() => handleCancel(ticket.id)} disabled={actionPending} className="button danger small">
@@ -116,6 +146,13 @@ export function MyTicketsPage() {
                     </button>
                   )}
                 </div>
+                {purchasingId === ticket.id && (
+                  <PurchasePanel
+                    ticket={ticket}
+                    onDone={handlePurchaseDone}
+                    onCancel={() => setPurchasingId(null)}
+                  />
+                )}
               </li>
             ))}
           </ul>
