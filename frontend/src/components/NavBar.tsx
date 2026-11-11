@@ -27,17 +27,7 @@ export function NavBar() {
             </span>
             <span className="brand-text">
               <span className="brand-title">Foxy Ticket Service</span>
-              {/* Speed cue: a speedometer with its needle in the red zone (the needle sweeps up
-                  into it once on load). Decorative, so screen readers just read the text. */}
-              <span className="brand-tagline">
-                <svg className="speedometer" width="28" height="24" viewBox="0 0 24 20.5" aria-hidden="true">
-                  <path className="gauge" d="M3 17 A9 9 0 0 1 15.6 8.7" />
-                  <path className="gauge-redline" d="M15.6 8.7 A9 9 0 0 1 21 17" />
-                  <path className="needle" d="M12 17 L19.2 10.9" />
-                  <circle className="hub" cx="12" cy="17" r="2.5" />
-                </svg>
-                <span className="tagline-text">Find a show. Grab a seat.</span>
-              </span>
+              <span className="brand-tagline">Find a show. Grab a seat.</span>
             </span>
           </Link>
           <div className="nav-auth">

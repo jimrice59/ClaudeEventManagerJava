@@ -23,7 +23,6 @@
 
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
-  --speedy: "Kanit", "Arial Narrow", system-ui, sans-serif;
 
   font: 16px/145% var(--sans);
   color-scheme: light dark;
@@ -174,67 +173,9 @@ a:hover {
   letter-spacing: 0.2px;
 }
 
-/* Tagline styled for speed: sporty italic (Kanit) led by a speedometer whose needle sits in the
-   red zone, sweeping up into it once on load (skipped under prefers-reduced-motion). */
 .brand-tagline {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 3px;
+  font-size: 14px;
   color: #ffedd5;
-}
-
-.tagline-text {
-  font-family: var(--speedy);
-  font-style: italic;
-  font-weight: 600;
-  font-size: 16px;
-  letter-spacing: 0.4px;
-}
-
-.speedometer {
-  flex-shrink: 0;
-  fill: none;
-  stroke-width: 2.8;
-  stroke-linecap: round;
-}
-
-.speedometer .gauge {
-  stroke: #ffedd5;
-}
-
-.speedometer .gauge-redline {
-  stroke: #f87171;
-}
-
-.speedometer .needle {
-  stroke: #fde047;
-  stroke-width: 2.6;
-  /* Pivot on the hub (12, 17 in the SVG's own coordinates). */
-  transform-box: view-box;
-  transform-origin: 12px 17px;
-  animation: needle-sweep 0.9s cubic-bezier(0.3, 0.7, 0.2, 1.15) 0.2s both;
-}
-
-.speedometer .hub {
-  fill: #ffedd5;
-  stroke: none;
-}
-
-/* From the low end of the dial up into the red zone, overshooting slightly like a real needle. */
-@keyframes needle-sweep {
-  from {
-    transform: rotate(-110deg);
-  }
-  to {
-    transform: rotate(0deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .speedometer .needle {
-    animation: none;
-  }
 }
 
 .nav-auth {
@@ -316,9 +257,6 @@ button.on-band:hover:not(:disabled) {
 @media (max-width: 520px) {
   .brand-title {
     font-size: 22px;
-  }
-  .tagline-text {
-    font-size: 14px;
   }
   .mascot-badge {
     width: 52px;
