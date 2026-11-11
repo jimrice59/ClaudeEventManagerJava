@@ -37,13 +37,22 @@ stack.
   automatically at event-creation time — one row per unit of capacity.
 - **Tickets** move through a state machine: `AVAILABLE → RESERVED → PAYING → SOLD`, with
   cancellation returning a sold ticket to `AVAILABLE` rather than a terminal "cancelled" state.
-  Ownership is always derived from the caller's JWT, never accepted from the client.
+  Ownership is always derived from the caller's JWT, never accepted from the client. A ticket can
+  be reserved by id, or the caller can ask for "the next available ticket" for an event and let the
+  server choose one.
+- **Ticket changes are safe under concurrency.** Every status transition locks the ticket's row
+  while it checks and updates it, so when several requests race for the same ticket, exactly one
+  wins. Before this, simultaneous purchases of one ticket could all succeed, charging the buyer
+  more than once. "Reserve the next available" uses `SKIP LOCKED`, so simultaneous callers get
+  different tickets instead of colliding.
+- **Event browsing** filters by venue, performer, and date range in any combination.
 - **Purchasing a ticket is a saga, not a single write.** `purchaseTicket` moves the ticket to
   `PAYING`, calls an external payment service over gRPC (deadline 120s) with no database
   transaction open during that call, then resolves to `SOLD` (stamping `datePurchased`) on
   approval or back to `AVAILABLE` on decline. If the call itself fails, the ticket is deliberately
-  left `PAYING` rather than guessed at, for later reconciliation — see payment-service-grpc.md and
-  docs/payment-service-integration.md.
+  left `PAYING` rather than guessed at; nothing reconciles it automatically yet. For local
+  development, `PAYMENT_SERVICE_ENABLED=false` skips the call and approves every purchase — see
+  payment-service-grpc.md and docs/payment-service-integration.md.
 - **Deleting an event archives only its `SOLD` tickets to Cassandra**, synchronously, before every
   ticket for that event (regardless of status) is deleted from Postgres — a ticket is never
   permanently removed without a confirmed archive existing first, but `AVAILABLE`/`RESERVED`/
@@ -115,9 +124,11 @@ new HTML page from the server on every navigation (which is what the Thymeleaf U
 | `traefik` | Optional reverse proxy/load balancer, behind the `traefik` profile |
 | `prometheus`, `grafana` | Metrics scraping + dashboards |
 
-There is no payment-service container — `PaymentGrpcConfig`'s channel is lazy, so the app starts
-fine without one and only fails when a purchase is actually attempted. See build-and-run.md for
-the full command reference.
+There is no payment-service container. `PaymentGrpcConfig`'s channel is lazy, so the app starts
+fine without one, and `docker-compose.yml` sets `PAYMENT_SERVICE_ENABLED=false` by default so
+purchases are simulated (always approved, nobody charged) instead of failing. After changing backend
+code, run `docker compose up -d --build app`: plain `up -d` keeps running the previously built image.
+See build-and-run.md for the full command reference.
 
 ### Notable Engineering Decisions
 
@@ -127,6 +138,10 @@ the full command reference.
   purchase (including the up-to-120-second payment-service call) in a single `@Transactional`
   would pin a Postgres connection and row lock for that entire duration; a `TransactionTemplate`
   commits RESERVED→PAYING, makes the call with no transaction open, then commits the outcome.
+- **Pessimistic row locks for ticket transitions, not optimistic `@Version` checks** — there's no
+  migration tool, so adding a version column to the existing tickets table would leave it NULL on
+  every row. Each lock lasts only as long as that step's transaction, and never spans the
+  payment-service call.
 - **Redis sliding-window rate limiting** via an atomic Lua script (not a fixed-window counter, which
   would allow bursting) — fails *open* on Redis outages so the limiter itself is never a single
   point of failure.
@@ -169,8 +184,15 @@ the full command reference.
 
 ### Current State
 
-115/115 backend tests passing. Recent work added this app's own gRPC API server (a third transport
-alongside REST and the web UI), a gRPC client integration with an external payment service (the
-`PAYING` status and two-transaction purchase saga), a Cassandra sold-tickets-only archive sweep on
-event deletion, optional TLS for both the HTTP and gRPC listeners, and matching Kubernetes/Docker
-exposure for the new gRPC port.
+153/153 backend tests passing (as of 2026-11-11). The most recent work:
+- **Combinable event filters:** venue, performer and date range, with events listed in date order.
+- **"Reserve the next available ticket"** for an event, in REST, gRPC and the React UI.
+- **Concurrency fixes:** row locks fixed races that let simultaneous reserves or purchases of one
+  ticket all succeed.
+- **A payment-service toggle** for local development.
+- **Error handling:** 400s instead of 500s for malformed request parameters.
+- **React checkout:** an inline checkout panel with clear outcomes for each payment result.
+
+Earlier work added this app's own gRPC API server, the payment-service gRPC client and its
+two-transaction purchase saga, a Cassandra sold-tickets-only archive sweep on event deletion, and
+optional TLS for both the HTTP and gRPC listeners.
