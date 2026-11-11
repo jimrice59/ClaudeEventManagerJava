@@ -1,6 +1,7 @@
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { FoxMascot } from "./FoxMascot";
+import { TicketStack } from "./TicketStack";
 
 /** Site header shown on every page: brand band (mascot + title + account) above the section nav. */
 export function NavBar() {
@@ -27,7 +28,10 @@ export function NavBar() {
             </span>
             <span className="brand-text">
               <span className="brand-title">Foxy Ticket Service</span>
-              <span className="brand-tagline">Find a show. Grab a seat.</span>
+              <span className="brand-tagline">
+                Find a show. Grab a seat.
+                <TicketStack width={48} />
+              </span>
             </span>
           </Link>
           <div className="nav-auth">

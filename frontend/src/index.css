@@ -174,8 +174,16 @@ a:hover {
 }
 
 .brand-tagline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   color: #ffedd5;
+}
+
+/* Decorative ticket stack after the tagline (TicketStack.tsx) */
+.ticket-stack {
+  flex-shrink: 0;
 }
 
 .nav-auth {
