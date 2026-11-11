@@ -1,13 +1,11 @@
 /**
- * Foxy Ticket Service mascot: a happy fox with a sly, clever look, in three-quarter view (head
- * turned toward the viewer's left, with a slight playful tilt). The sly look comes from
- * half-lidded eyes (still open and looking straight at the viewer), one brow cocked high and the
- * other low, and a lopsided grin that curls up toward the near cheek and shows a little fang. The
- * open smile, tongue, and blush keep it happy. Drawn as an inline SVG so it scales crisply and needs
- * no image request; public/favicon.svg is the same drawing on a teal tile.
- *
- * Gaze: the pupils sit centered under the lids in both eyes, with their highlights in the same
- * relative spot, so the fox reads as looking at you even though its head is turned.
+ * Foxy Ticket Service mascot: a happy, clever fox in three-quarter view (head turned toward the
+ * viewer's left, with a slight playful tilt). Clever, not sly: the eyes are wide open on top and
+ * look straight at the viewer, with a four-point sparkle in each (a "twinkle in the eye") and
+ * cheeks lifting the lower lids into smiling eyes. Both brows arch upward, the near one higher,
+ * for a curious, quick-witted look. A confident, warm grin, slightly open with a bit of tongue,
+ * plus blush keeps it happy. (Sly would come from lowered, inward-slanting upper lids or a smirk.)
+ * Drawn as an inline SVG so it scales crisply; public/favicon.svg is the same drawing on a teal tile.
  */
 export function FoxMascot({ size = 56 }: { size?: number }) {
   return (
@@ -30,29 +28,26 @@ export function FoxMascot({ size = 56 }: { size?: number }) {
       <path d="M27 58 C26 38 44 26 64 26 C86 26 103 39 104 57 C104 63 102 68 99 72 L107 77 L97 80 L102 88 L91 88 C83 99 70 105 57 105 C42 105 28 96 23 83 C20 75 23 66 27 58 Z" fill="#ea580c"/>
       {/* cream lower face: snout (left, rising to meet the nose) sweeping into the near cheek */}
       <path d="M12 76 C13 67 22 62 33 62 C45 63 55 70 61 79 C70 87 82 88 94 84 L91 88 C83 99 70 105 57 106 C40 108 19 105 13 93 C11 87 11 81 12 76 Z" fill="#fff7ed"/>
-      {/* eyes: still open and looking at you, but half-lidded for a sly, knowing look */}
-      <ellipse cx="42" cy="52" rx="5.6" ry="7.2" fill="#2b1d16"/>
-      <ellipse cx="73" cy="51" rx="7.6" ry="9.2" fill="#2b1d16"/>
-      <circle cx="40.6" cy="54.2" r="1.9" fill="#fff"/>
-      <circle cx="70.8" cy="53.6" r="2.6" fill="#fff"/>
-      <circle cx="43.8" cy="57" r="0.9" fill="#fff" opacity="0.8"/>
-      <circle cx="76.2" cy="57.4" r="1.2" fill="#fff" opacity="0.8"/>
-      {/* lowered upper lids (head-colored), slanting down toward the nose */}
-      <path d="M35 42 H50 V50.5 Q42.5 48.2 35.6 51.6 Z" fill="#ea580c"/>
-      <path d="M64 39 H82 V48.6 Q73 45.6 64.4 50.4 Z" fill="#ea580c"/>
-      <path d="M35.8 51.4 Q42.5 48 49.4 50.2" fill="none" stroke="#2b1d16" strokeWidth="2.2" strokeLinecap="round"/>
-      <path d="M64.6 50.2 Q73 45.4 81.6 48.2" fill="none" stroke="#2b1d16" strokeWidth="2.4" strokeLinecap="round"/>
-      {/* brows: near one arched high, far one low and flat = clever, quizzical */}
-      <path d="M35.5 44 Q41 41.6 47.5 42.6" fill="none" stroke="#7c2d12" strokeWidth="2.6" strokeLinecap="round"/>
-      <path d="M65 36 Q73 28.5 82.5 33.5" fill="none" stroke="#7c2d12" strokeWidth="2.8" strokeLinecap="round"/>
+      {/* eyes: wide open on top and looking straight at you; cheeks lift the lower lids into "smiling eyes" (warm and self-assured, unlike sly lowered upper lids) */}
+      <ellipse cx="42" cy="52" rx="5.8" ry="7.4" fill="#2b1d16"/>
+      <ellipse cx="73" cy="51" rx="7.8" ry="9.4" fill="#2b1d16"/>
+      <path d="M34.5 57.4 Q42 53.4 49.5 57.4 V62 H34.5 Z" fill="#ea580c"/>
+      <path d="M63 56.6 Q73 51.8 83 56.6 V62.5 H63 Z" fill="#ea580c"/>
+      {/* a twinkle in each eye: four-point sparkles instead of plain round highlights */}
+      <path d="M40.2 45.2 L41.1 48 L43.9 48.9 L41.1 49.8 L40.2 52.6 L39.3 49.8 L36.5 48.9 L39.3 48 Z" fill="#fff"/>
+      <path d="M70.4 42.6 L71.6 46.1 L75.1 47.3 L71.6 48.5 L70.4 52 L69.2 48.5 L65.7 47.3 L69.2 46.1 Z" fill="#fff"/>
+      <circle cx="44.6" cy="53.2" r="0.9" fill="#fff" opacity="0.8"/>
+      <circle cx="77" cy="52.4" r="1.2" fill="#fff" opacity="0.8"/>
+      {/* brows: both arched upward, the near one raised higher = curious, quick-witted */}
+      <path d="M36 41.5 Q41.5 37.6 47.5 40" fill="none" stroke="#7c2d12" strokeWidth="2.6" strokeLinecap="round"/>
+      <path d="M65.5 35.5 Q73 28.6 82 33.2" fill="none" stroke="#7c2d12" strokeWidth="2.8" strokeLinecap="round"/>
       {/* blush on near cheek */}
       <ellipse cx="84" cy="70" rx="6.5" ry="4.5" fill="#fb7185" opacity="0.45"/>
-      {/* lopsided grin rising toward the near cheek, with a curled corner and a little fang */}
-      <path d="M17 80 Q32 87.5 51 82.5 Q46 95 33.5 95.5 Q22 94 17 80 Z" fill="#7f1d1d"/>
-      <path d="M24 90.5 Q31 97.5 41 93.4 Q33 87.6 24 90.5 Z" fill="#fb7185"/>
-      <path d="M37.6 84.1 L40.2 89.6 L42.6 83.9 Z" fill="#fff"/>
-      <path d="M15 78 Q32 88 52 82" fill="none" stroke="#2b1d16" strokeWidth="2.4" strokeLinecap="round"/>
-      <path d="M51.6 82.2 Q56.6 80.4 57.4 74.8" fill="none" stroke="#2b1d16" strokeWidth="2.4" strokeLinecap="round"/>
+      {/* confident, warm smile: open just enough to show a bit of tongue, both corners up */}
+      <path d="M17 80 Q32 88 50 84.5 Q45 94.5 33.5 95 Q22 93.5 17 80 Z" fill="#7f1d1d"/>
+      <path d="M24.5 90.5 Q31.5 96.6 40.5 92.8 Q33 88.4 24.5 90.5 Z" fill="#fb7185"/>
+      <path d="M15 78 Q32 88.5 51 84" fill="none" stroke="#2b1d16" strokeWidth="2.4" strokeLinecap="round"/>
+      <path d="M50.6 84.2 Q54.8 83.2 55.6 79.2" fill="none" stroke="#2b1d16" strokeWidth="2.4" strokeLinecap="round"/>
       {/* nose at the snout tip, drawn last so it sits on top */}
       <ellipse cx="15.5" cy="74.5" rx="6.4" ry="5.2" fill="#2b1d16"/>
       <ellipse cx="13.6" cy="72.8" rx="2.1" ry="1.3" fill="#fff" opacity="0.75"/>
