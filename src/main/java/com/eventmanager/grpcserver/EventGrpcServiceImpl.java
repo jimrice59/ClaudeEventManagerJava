@@ -15,6 +15,7 @@ import com.eventmanager.grpc.api.ListEventsResponse;
 import com.eventmanager.grpc.api.PerformerMessage;
 import com.eventmanager.grpc.api.UpdateEventRequest;
 import com.eventmanager.grpc.api.VenueMessage;
+import com.eventmanager.service.EventSearchCriteria;
 import com.eventmanager.service.EventService;
 import com.google.protobuf.Empty;
 import io.grpc.stub.StreamObserver;
@@ -58,9 +59,14 @@ public class EventGrpcServiceImpl extends EventGrpcServiceGrpc.EventGrpcServiceI
     @Override
     public void listEvents(ListEventsRequest request, StreamObserver<ListEventsResponse> responseObserver) {
         GrpcCallSupport.run(responseObserver, () -> {
-            List<EventResponse> events = request.hasVenueId()
-                    ? eventService.getEventsByVenue(request.getVenueId())
-                    : eventService.getAllEvents();
+            EventSearchCriteria criteria = new EventSearchCriteria(
+                    request.hasVenueId() ? request.getVenueId() : null,
+                    request.hasPerformerId() ? request.getPerformerId() : null,
+                    request.hasStart() ? LocalDateTime.parse(request.getStart()) : null,
+                    request.hasEnd() ? LocalDateTime.parse(request.getEnd()) : null);
+            List<EventResponse> events = criteria.equals(EventSearchCriteria.none())
+                    ? eventService.getAllEvents()
+                    : eventService.searchEvents(criteria);
             responseObserver.onNext(ListEventsResponse.newBuilder()
                     .addAllEvents(events.stream().map(this::toMessage).toList())
                     .build());

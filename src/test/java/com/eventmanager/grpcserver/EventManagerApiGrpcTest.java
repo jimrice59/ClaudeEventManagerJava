@@ -13,6 +13,7 @@ import com.eventmanager.grpc.api.EventGrpcServiceGrpc;
 import com.eventmanager.grpc.api.EventIdRequest;
 import com.eventmanager.grpc.api.EventMessage;
 import com.eventmanager.grpc.api.GetEventRequest;
+import com.eventmanager.grpc.api.ListEventsRequest;
 import com.eventmanager.grpc.api.PerformerGrpcServiceGrpc;
 import com.eventmanager.grpc.api.PerformerIdRequest;
 import com.eventmanager.grpc.api.PerformerMessage;
@@ -29,6 +30,7 @@ import com.eventmanager.model.User;
 import com.eventmanager.repository.UserRepository;
 import com.eventmanager.security.JwtTokenProvider;
 import com.eventmanager.security.UserDetailsServiceImpl;
+import com.eventmanager.service.EventSearchCriteria;
 import com.eventmanager.service.EventService;
 import com.eventmanager.service.PerformerService;
 import com.eventmanager.service.TicketService;
@@ -162,6 +164,40 @@ class EventManagerApiGrpcTest {
 
         assertThat(response.getId()).isEqualTo(1L);
         assertThat(response.getName()).isEqualTo("Summer Rock Festival");
+    }
+
+    @Test
+    void listEvents_passesEveryFilterThroughAsCombinedCriteria() {
+        when(eventService.searchEvents(any())).thenReturn(java.util.List.of());
+
+        eventStub.listEvents(ListEventsRequest.newBuilder()
+                .setVenueId(1L).setPerformerId(2L)
+                .setStart("2026-06-01T00:00:00").setEnd("2026-06-30T23:59:59").build());
+
+        org.mockito.ArgumentCaptor<EventSearchCriteria> criteria = org.mockito.ArgumentCaptor.forClass(EventSearchCriteria.class);
+        verify(eventService).searchEvents(criteria.capture());
+        assertThat(criteria.getValue()).isEqualTo(new EventSearchCriteria(1L, 2L,
+                java.time.LocalDateTime.of(2026, 6, 1, 0, 0), java.time.LocalDateTime.of(2026, 6, 30, 23, 59, 59)));
+        verify(eventService, never()).getAllEvents();
+    }
+
+    @Test
+    void listEvents_withNoFiltersUsesTheUnfilteredList() {
+        when(eventService.getAllEvents()).thenReturn(java.util.List.of());
+
+        eventStub.listEvents(ListEventsRequest.getDefaultInstance());
+
+        verify(eventService).getAllEvents();
+        verify(eventService, never()).searchEvents(any());
+    }
+
+    @Test
+    void listEvents_rejectsMalformedStartWithInvalidArgument() {
+        assertThatThrownBy(() -> eventStub.listEvents(ListEventsRequest.newBuilder().setStart("June 1st").build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.INVALID_ARGUMENT));
+        verify(eventService, never()).searchEvents(any());
     }
 
     @Test

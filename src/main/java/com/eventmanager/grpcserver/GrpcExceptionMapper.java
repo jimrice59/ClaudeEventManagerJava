@@ -38,8 +38,10 @@ final class GrpcExceptionMapper {
             // event_date/ticket_price are plain strings on the wire (see event_manager_api.proto)
             // precisely because proto3 has no native date/decimal type — a malformed one is a
             // client input error, not a server bug, so INVALID_ARGUMENT rather than INTERNAL.
+            // Also ListEventsRequest's start/end, hence the generic wording.
             case java.time.format.DateTimeParseException ex ->
-                    Status.INVALID_ARGUMENT.withDescription("Invalid event_date: " + ex.getMessage());
+                    Status.INVALID_ARGUMENT.withDescription(
+                            "Invalid date-time (expected ISO-8601, e.g. 2026-06-01T19:00:00): " + ex.getMessage());
             case NumberFormatException ex ->
                     Status.INVALID_ARGUMENT.withDescription("Invalid ticket_price: " + ex.getMessage());
             case AccessDeniedException ex -> Status.PERMISSION_DENIED.withDescription("Access denied");

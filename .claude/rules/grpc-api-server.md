@@ -80,7 +80,7 @@ delete-RPC responses. Each `*GrpcService` generates an `ImplBase` to extend and 
   equivalent of `GlobalExceptionHandler` — same exceptions, different wire format.
 - `GrpcUnauthenticatedException` — package-private marker exception, only ever thrown by
   `GrpcCallSupport.runAuthenticated` and only ever caught by `GrpcExceptionMapper`.
-- `EventGrpcServiceImpl` — `GetEvent`/`ListEvents` (optional `venue_id` filter)/
+- `EventGrpcServiceImpl` — `GetEvent`/`ListEvents` (optional `venue_id`/`performer_id`/`start`/`end`, ANDed like REST — all mapped into one `EventSearchCriteria` for `EventService.searchEvents`, or `getAllEvents` when none are set; a malformed `start`/`end` → `INVALID_ARGUMENT`, `start` after `end` → `FAILED_PRECONDITION` via the `IllegalArgumentException` mapping)/
   `GetAvailableTicketCount` (public, `GrpcCallSupport.run`); `CreateEvent`/`UpdateEvent`/
   `DeleteEvent` (`GrpcCallSupport.runAdmin`), each mapping the proto request to an `EventRequest`
   DTO and validating it first. `UpdateEventRequest` has no `tickets_total` field (immutable after

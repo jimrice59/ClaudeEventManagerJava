@@ -47,7 +47,9 @@ public class RedisConfig {
                 .withCacheConfiguration("venuesByCity", thirtyMinutes)
                 .withCacheConfiguration("performersByName", thirtyMinutes)
                 .withCacheConfiguration("performersByGenre", thirtyMinutes)
-                .withCacheConfiguration("eventsByVenue", thirtyMinutes)
+                // Filtered event search (venue and/or performer, no date bound — date-bounded
+                // searches aren't cached). 30s like allEvents: any event write can change it.
+                .withCacheConfiguration("eventSearch", thirtySeconds)
                 .build();
     }
 

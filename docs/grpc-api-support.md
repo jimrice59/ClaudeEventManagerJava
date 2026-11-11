@@ -26,7 +26,7 @@ REST. No token is required for public calls; an invalid or expired token is reje
 | RPC | Access | Description |
 |---|---|---|
 | `GetEvent` | public | Fetch one event by id |
-| `ListEvents` | public | All events, or filtered by `venue_id` |
+| `ListEvents` | public | All events, or those matching every one of `venue_id`, `performer_id`, `start`, `end` (ISO-8601 strings, inclusive) that's set |
 | `GetAvailableTicketCount` | public | Live count of `AVAILABLE` tickets for an event |
 | `CreateEvent` | ROLE_ADMIN | Create an event (and its tickets) |
 | `UpdateEvent` | ROLE_ADMIN | Update an event's mutable fields (no `tickets_total` — fixed at creation) |

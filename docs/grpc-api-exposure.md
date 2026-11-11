@@ -8,7 +8,7 @@ service — see payment-service-grpc.md and docs/payment-service-integration.md.
 
 ## Scope
 
-- `EventGrpcService`: `GetEvent`, `ListEvents` (all events, or filtered by `venue_id`),
+- `EventGrpcService`: `GetEvent`, `ListEvents` (all events, or filtered by any combination of `venue_id`, `performer_id`, `start`, `end`),
   `GetAvailableTicketCount` (public); `CreateEvent`, `UpdateEvent`, `DeleteEvent` (`ROLE_ADMIN`).
 - `TicketGrpcService`: `GetTicket` (public); `GetMyTickets`, `ReserveTicket`,
   `ReserveAvailableTicket` (takes an `EventIdRequest`; `FAILED_PRECONDITION` when none are left),

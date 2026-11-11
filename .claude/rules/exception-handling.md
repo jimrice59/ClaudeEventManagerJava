@@ -14,7 +14,8 @@ paths:
 | `ResourceNotFoundException` | 404 | Message from exception |
 | `AccessDeniedException` | 403 | Fixed message "Access denied"; must be declared before the `Exception` catch-all or `@PreAuthorize` rejections return 500 |
 | `BadCredentialsException` | 401 | Fixed message "Invalid username or password" |
-| `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email and by `EventService` for invalid ticket counts |
+| `IllegalArgumentException` | 400 | Message from exception; used by `AuthService` for duplicate username/email and by `EventService` for invalid ticket counts, and by `EventSearchCriteria` when `start` is after `end` |
+| `MethodArgumentTypeMismatchException` | 400 | A query/path parameter that can't be converted to its type (`?start=June-1st`, `?venueId=abc`, `/events/abc`): "Invalid value 'X' for parameter 'p': expected Long", plus an ISO-8601 hint for date-time params. Previously fell through to the catch-all as a 500 |
 | `MethodArgumentNotValidException` | 400 | Returns `{ status, errors: { field: message }, timestamp }` — different shape from `ErrorResponse` |
 | `Exception` (catch-all) | 500 | Generic message; logged server-side at `ERROR` (`log.error("Unhandled exception", ex)`) since this is the only place an unexpected failure is ever surfaced — the client only ever sees the generic message, never a stack trace |
 

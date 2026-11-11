@@ -9,6 +9,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * RestTemplate-based client for the Event Manager API.
@@ -88,6 +89,20 @@ public class EventManagerClient {
         String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events")
                 .queryParam("start", start.format(DT))
                 .queryParam("end", end.format(DT))
+                .toUriString();
+        return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
+    }
+
+    /**
+     * Lists events matching every non-null argument (ANDed); any or all may be null. Date bounds
+     * are inclusive and each works on its own. Ordered by event date.
+     */
+    public List<EventResponse> searchEvents(Long venueId, Long performerId, LocalDateTime start, LocalDateTime end) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events")
+                .queryParamIfPresent("venueId", Optional.ofNullable(venueId))
+                .queryParamIfPresent("performerId", Optional.ofNullable(performerId))
+                .queryParamIfPresent("start", Optional.ofNullable(start).map(d -> d.format(DT)))
+                .queryParamIfPresent("end", Optional.ofNullable(end).map(d -> d.format(DT)))
                 .toUriString();
         return exchangeList(url, HttpMethod.GET, publicEntity(), new ParameterizedTypeReference<>() {});
     }

@@ -5,6 +5,7 @@ import com.eventmanager.dto.EventResponse;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.dto.UpdateEventRequest;
+import com.eventmanager.service.EventSearchCriteria;
 import com.eventmanager.service.EventService;
 import com.eventmanager.service.TicketService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,25 +39,31 @@ public class EventController {
     private final TicketService ticketService;
 
     @Operation(summary = "List events",
-               description = "Returns all events, or filters by venueId, or filters by date range (start + end both required). " +
-                             "Provide venueId OR start+end, not both.")
-    @ApiResponse(responseCode = "200", description = "Event list (may be empty)")
+               description = "Returns all events, or only those matching every filter given. Filters combine " +
+                             "(AND): e.g. venueId + performerId + start returns that performer's events at that " +
+                             "venue from start onward. start and end are inclusive and each works on its own. " +
+                             "Ordered by event date.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Event list (may be empty)"),
+            @ApiResponse(responseCode = "400", description = "start is after end, or a malformed parameter", content = @Content)
+    })
     @GetMapping
     public ResponseEntity<List<EventResponse>> getAllEvents(
             @Parameter(description = "Filter by venue ID") @RequestParam(required = false) Long venueId,
-            @Parameter(description = "Range start (ISO 8601, e.g. 2025-06-01T00:00:00)")
+            @Parameter(description = "Filter by performer ID (events this performer appears in)")
+                @RequestParam(required = false) Long performerId,
+            @Parameter(description = "Events on or after this time (ISO 8601, e.g. 2025-06-01T00:00:00)")
                 @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
-            @Parameter(description = "Range end (ISO 8601, e.g. 2025-06-30T23:59:59)")
+            @Parameter(description = "Events on or before this time (ISO 8601, e.g. 2025-06-30T23:59:59)")
                 @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
-        log.debug("Received request to list events: venueId={}, start={}, end={}", venueId, start, end);
-
-        if (venueId != null) {
-            return ResponseEntity.ok(eventService.getEventsByVenue(venueId));
+        log.debug("Received request to list events: venueId={}, performerId={}, start={}, end={}",
+                venueId, performerId, start, end);
+        EventSearchCriteria criteria = new EventSearchCriteria(venueId, performerId, start, end);
+        if (criteria.equals(EventSearchCriteria.none())) {
+            // The unfiltered list keeps its own cache entry, shared with the Thymeleaf UI.
+            return ResponseEntity.ok(eventService.getAllEvents());
         }
-        if (start != null && end != null) {
-            return ResponseEntity.ok(eventService.getEventsBetween(start, end));
-        }
-        return ResponseEntity.ok(eventService.getAllEvents());
+        return ResponseEntity.ok(eventService.searchEvents(criteria));
     }
 
     @Operation(summary = "Get event by ID")

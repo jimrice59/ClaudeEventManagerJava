@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -72,6 +73,23 @@ public class GlobalExceptionHandler {
         body.put("errors", fieldErrors);
         body.put("timestamp", LocalDateTime.now());
         return ResponseEntity.badRequest().body(body);
+    }
+
+    /**
+     * A query/path parameter that can't be converted to its declared type — e.g.
+     * {@code GET /api/v1/events?start=June-1st} or {@code ?venueId=abc}. Client input error, so 400;
+     * without this it fell through to the generic handler below as a 500.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String expected = ex.getRequiredType() != null ? ex.getRequiredType().getSimpleName() : "a valid value";
+        String hint = java.time.temporal.Temporal.class.isAssignableFrom(
+                ex.getRequiredType() != null ? ex.getRequiredType() : Object.class)
+                ? " (ISO 8601, e.g. 2026-06-01T19:00:00)" : "";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(HttpStatus.BAD_REQUEST.value(),
+                        "Invalid value '" + ex.getValue() + "' for parameter '" + ex.getName()
+                                + "': expected " + expected + hint));
     }
 
     @ExceptionHandler(Exception.class)

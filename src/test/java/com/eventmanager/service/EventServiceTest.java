@@ -13,6 +13,9 @@ import com.eventmanager.repository.PerformerRepository;
 import com.eventmanager.repository.VenueRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -132,39 +135,29 @@ class EventServiceTest {
                 .hasMessageContaining("99");
     }
 
-    // --- getEventsByVenue ---
+    // --- searchEvents ---
 
     @Test
-    void getEventsByVenue_returnsMatchingEvents() {
-        when(eventRepository.findByVenueId(1L)).thenReturn(List.of(event));
+    @SuppressWarnings("unchecked")
+    void searchEvents_mapsMatchingEventsOrderedByEventDateThenId() {
+        when(eventRepository.findAll(any(Specification.class), any(Sort.class))).thenReturn(List.of(event));
         when(venueService.toDto(venue)).thenReturn(venueDto);
 
-        List<EventResponse> result = eventService.getEventsByVenue(1L);
+        List<EventResponse> result = eventService.searchEvents(new EventSearchCriteria(1L, 2L, null, null));
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getVenue().getId()).isEqualTo(1L);
+        ArgumentCaptor<Sort> sort = ArgumentCaptor.forClass(Sort.class);
+        verify(eventRepository).findAll(any(Specification.class), sort.capture());
+        assertThat(sort.getValue()).isEqualTo(Sort.by("eventDate", "id"));
     }
 
     @Test
-    void getEventsByVenue_returnsEmptyWhenNoMatch() {
-        when(eventRepository.findByVenueId(99L)).thenReturn(List.of());
+    @SuppressWarnings("unchecked")
+    void searchEvents_returnsEmptyWhenNoMatch() {
+        when(eventRepository.findAll(any(Specification.class), any(Sort.class))).thenReturn(List.of());
 
-        assertThat(eventService.getEventsByVenue(99L)).isEmpty();
-    }
-
-    // --- getEventsBetween ---
-
-    @Test
-    void getEventsBetween_returnsEventsInRange() {
-        LocalDateTime start = LocalDateTime.of(2025, 6, 1, 0, 0);
-        LocalDateTime end   = LocalDateTime.of(2025, 6, 30, 23, 59);
-        when(eventRepository.findByEventDateBetween(start, end)).thenReturn(List.of(event));
-        when(venueService.toDto(venue)).thenReturn(venueDto);
-
-        List<EventResponse> result = eventService.getEventsBetween(start, end);
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getEventDate()).isEqualTo(EVENT_DATE);
+        assertThat(eventService.searchEvents(new EventSearchCriteria(99L, null, null, null))).isEmpty();
     }
 
     // --- createEvent ---

@@ -50,8 +50,13 @@ message EventIdRequest {
   int64 id = 1;
 }
 
+// Every field is optional and the ones given are ANDed, same as GET /api/v1/events. With none
+// set, returns all events.
 message ListEventsRequest {
-  optional int64 venue_id = 1; // omitted: all events (GET /api/v1/events with no filter)
+  optional int64 venue_id = 1;
+  optional int64 performer_id = 2;
+  optional string start = 3; // inclusive lower bound, ISO-8601 local date-time, e.g. "2026-06-01T00:00:00"
+  optional string end = 4;   // inclusive upper bound, same format
 }
 
 message ListEventsResponse {

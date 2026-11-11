@@ -9,6 +9,7 @@ import com.eventmanager.model.EventStatus;
 import com.eventmanager.model.Performer;
 import com.eventmanager.model.Venue;
 import com.eventmanager.repository.EventRepository;
+import com.eventmanager.repository.EventSpecifications;
 import com.eventmanager.repository.PerformerRepository;
 import com.eventmanager.repository.VenueRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,10 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -61,24 +62,24 @@ public class EventService {
         return toResponse(event);
     }
 
-    @Cacheable(value = "eventsByVenue", key = "#venueId")
+    /**
+     * Lists events matching every non-null filter in {@code criteria} (ANDed — see
+     * {@link EventSearchCriteria}), ordered by event date then id. The single entry point for
+     * filtered listing on both REST and gRPC. Venue/performer-only searches are cached for 30
+     * seconds under {@code "eventSearch"} (TTL-only, like {@code "allEvents"}: list caches aren't
+     * evicted on writes); any search with a date bound isn't cached — see
+     * {@link EventSearchCriteria#hasDateBound()}.
+     */
+    @Cacheable(value = "eventSearch", key = "#criteria.cacheKey()", condition = "!#criteria.hasDateBound()")
     @Transactional(readOnly = true)
-    public List<EventResponse> getEventsByVenue(Long venueId) {
-        log.debug("Fetching events for venue id={}", venueId);
-        List<EventResponse> events = eventRepository.findByVenueId(venueId).stream()
+    public List<EventResponse> searchEvents(EventSearchCriteria criteria) {
+        log.debug("Searching events: {}", criteria);
+        List<EventResponse> events = eventRepository
+                .findAll(EventSpecifications.matching(criteria), Sort.by("eventDate", "id"))
+                .stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
-        log.debug("Found {} events for venue id={}", events.size(), venueId);
-        return events;
-    }
-
-    @Transactional(readOnly = true)
-    public List<EventResponse> getEventsBetween(LocalDateTime start, LocalDateTime end) {
-        log.debug("Fetching events between {} and {}", start, end);
-        List<EventResponse> events = eventRepository.findByEventDateBetween(start, end).stream()
-                .map(this::toResponse)
-                .collect(Collectors.toList());
-        log.debug("Found {} events between {} and {}", events.size(), start, end);
+        log.debug("Found {} events for {}", events.size(), criteria);
         return events;
     }
 

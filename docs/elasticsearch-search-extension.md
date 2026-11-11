@@ -58,7 +58,7 @@ so a slow Elasticsearch cluster never contends with Cassandra or Kafka I/O.
 pattern: `GET /api/v1/performers/search?q=` (or reworking the existing `?name=`/`?genre=` params)
 would call the new repository/operations instead of `PerformerRepository`, returning ranked results.
 Same for events — a single query box searching name/description/venue/performers at once, instead
-of the current separate `?venueId=` and `?start=&end=` filters.
+of the current structured `?venueId=`/`?performerId=`/`?start=`/`?end=` filters (which combine with AND, but match only exact ids and date bounds — no free text).
 
 **7. Test profile:** exclude Elasticsearch autoconfiguration the same way `application-test.yml`
 already excludes Cassandra/Kafka, so `mvn test` never needs a real cluster.

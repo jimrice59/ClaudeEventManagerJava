@@ -69,7 +69,7 @@ HTTP Request
 |---|---|---|---|
 | POST | `/api/v1/auth/register` | public | returns custom JWT |
 | POST | `/api/v1/auth/login` | public | returns custom JWT |
-| GET | `/api/v1/events` | public | optional `?venueId=` or `?start=&end=` (ISO datetime) |
+| GET | `/api/v1/events` | public | optional `?venueId=`, `?performerId=`, `?start=`, `?end=` (ISO datetime), **combined with AND**: any subset narrows the result, and `start`/`end` are inclusive and each works alone. Ordered by event date. 400 if `start` is after `end` or a value is malformed. Shared with gRPC `ListEvents` via `EventService.searchEvents(EventSearchCriteria)` |
 | GET | `/api/v1/events/{id}` | public | cached |
 | POST | `/api/v1/events` | ADMIN | 400 if `ticketsTotal` exceeds venue capacity; sets `status=AVAILABLE`; synchronously creates one AVAILABLE ticket per unit of `ticketsTotal` (Postgres only, not Cassandra); Cassandra dual-write of the event itself |
 | PUT | `/api/v1/events/{id}` | ADMIN | body: `UpdateEventRequest` — unlike `POST`'s `EventRequest`, has no `ticketsTotal` field at all (fixed at creation, immutable); Cassandra dual-write |

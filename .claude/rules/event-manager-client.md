@@ -38,6 +38,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getEvents()` | GET | `/api/v1/events` | public |
 | `getEventsByVenue(venueId)` | GET | `/api/v1/events?venueId=` | public |
 | `getEventsBetween(start, end)` | GET | `/api/v1/events?start=&end=` | public |
+| `searchEvents(venueId, performerId, start, end)` | GET | `/api/v1/events?venueId=&performerId=&start=&end=` | public — any argument may be null; the non-null ones are ANDed (both client copies: `src/main/.../client` and the `client/` module) |
 | `getEvent(id)` | GET | `/api/v1/events/{id}` | public |
 | `createEvent(EventRequest)` | POST | `/api/v1/events` | ADMIN |
 | `updateEvent(id, UpdateEventRequest)` | PUT | `/api/v1/events/{id}` | ADMIN |
