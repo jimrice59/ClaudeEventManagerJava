@@ -10,8 +10,9 @@ service — see payment-service-grpc.md and docs/payment-service-integration.md.
 
 - `EventGrpcService`: `GetEvent`, `ListEvents` (all events, or filtered by `venue_id`),
   `GetAvailableTicketCount` (public); `CreateEvent`, `UpdateEvent`, `DeleteEvent` (`ROLE_ADMIN`).
-- `TicketGrpcService`: `GetTicket` (public); `GetMyTickets`, `ReserveTicket`, `ReleaseTicket`,
-  `PurchaseTicket`, `CancelTicket` (authenticated — ownership-gated inside `TicketService`, not
+- `TicketGrpcService`: `GetTicket` (public); `GetMyTickets`, `ReserveTicket`,
+  `ReserveAvailableTicket` (takes an `EventIdRequest`; `FAILED_PRECONDITION` when none are left),
+  `ReleaseTicket`, `PurchaseTicket`, `CancelTicket` (authenticated — ownership-gated inside `TicketService`, not
   role-gated, matching `TicketController`).
 - `VenueGrpcService`: `GetVenue`, `ListVenues` (optional `city` filter) (public); `CreateVenue`,
   `UpdateVenue`, `DeleteVenue` (`ROLE_ADMIN`).

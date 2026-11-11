@@ -5,10 +5,12 @@ import com.eventmanager.dto.PerformerDto;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.dto.VenueDto;
 import com.eventmanager.exception.ResourceNotFoundException;
+import com.eventmanager.exception.NoTicketsAvailableException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
 import com.eventmanager.grpc.api.CreateEventRequest;
 import com.eventmanager.grpc.api.CreateVenueRequest;
 import com.eventmanager.grpc.api.EventGrpcServiceGrpc;
+import com.eventmanager.grpc.api.EventIdRequest;
 import com.eventmanager.grpc.api.EventMessage;
 import com.eventmanager.grpc.api.GetEventRequest;
 import com.eventmanager.grpc.api.PerformerGrpcServiceGrpc;
@@ -211,6 +213,38 @@ class EventManagerApiGrpcTest {
 
         assertThat(response.getStatus()).isEqualTo("RESERVED");
         assertThat(response.getUserId()).isEqualTo(42L);
+    }
+
+    @Test
+    void reserveAvailableTicket_succeedsWithValidToken() {
+        when(ticketService.reserveAvailableTicket(7L))
+                .thenReturn(TicketResponse.builder().id(3L).eventId(7L).status(TicketStatus.RESERVED).userId(42L).build());
+        var authedStub = withBearerToken(ticketStub, validToken);
+
+        TicketMessage response = authedStub.reserveAvailableTicket(EventIdRequest.newBuilder().setId(7L).build());
+
+        assertThat(response.getId()).isEqualTo(3L);
+        assertThat(response.getStatus()).isEqualTo("RESERVED");
+    }
+
+    @Test
+    void reserveAvailableTicket_rejectedWithUnauthenticatedWhenNoTokenPresented() {
+        assertThatThrownBy(() -> ticketStub.reserveAvailableTicket(EventIdRequest.newBuilder().setId(7L).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.UNAUTHENTICATED));
+        verify(ticketService, never()).reserveAvailableTicket(anyLong());
+    }
+
+    @Test
+    void reserveAvailableTicket_mapsNoTicketsAvailableToFailedPrecondition() {
+        when(ticketService.reserveAvailableTicket(7L)).thenThrow(new NoTicketsAvailableException(7L));
+        var authedStub = withBearerToken(ticketStub, validToken);
+
+        assertThatThrownBy(() -> authedStub.reserveAvailableTicket(EventIdRequest.newBuilder().setId(7L).build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.FAILED_PRECONDITION));
     }
 
     @Test

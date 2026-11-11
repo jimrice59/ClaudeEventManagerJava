@@ -13,7 +13,7 @@ All four services cache individual records by ID with a 1-hour TTL:
 | `"events"` | `EventService` | `getEventById` | `createEvent`, `updateEvent` | `deleteEvent` |
 | `"venues"` | `VenueService` | `getVenueById` | `createVenue`, `updateVenue` | `deleteVenue` |
 | `"performers"` | `PerformerService` | `getPerformerById` | `createPerformer`, `updatePerformer`, `addVideo`, `deleteVideo` | `deletePerformer` |
-| `"tickets"` | `TicketService` | `getTicketById` | `reserveTicket`, `releaseTicket`, `cancelTicket` | `purchaseTicket` (manual, see note) |
+| `"tickets"` | `TicketService` | `getTicketById` | `reserveTicket`, `reserveAvailableTicket` (keyed by `#result.id`), `releaseTicket`, `cancelTicket` | `purchaseTicket` (manual, see note) |
 
 `purchaseTicket` doesn't use `@CachePut` like the other three transitions — it calls
 `cacheManager.getCache("tickets").evict(id)` directly after each of its two saga transactions

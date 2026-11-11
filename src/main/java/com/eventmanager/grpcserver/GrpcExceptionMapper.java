@@ -1,5 +1,6 @@
 package com.eventmanager.grpcserver;
 
+import com.eventmanager.exception.NoTicketsAvailableException;
 import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
@@ -44,6 +45,8 @@ final class GrpcExceptionMapper {
             case AccessDeniedException ex -> Status.PERMISSION_DENIED.withDescription("Access denied");
             // 409-equivalent: a conflict with a purchase attempt already in flight for this ticket.
             case TicketPaymentInProgressException ex -> Status.FAILED_PRECONDITION.withDescription(ex.getMessage());
+            // 409-equivalent: the event has no AVAILABLE ticket left to reserve.
+            case NoTicketsAvailableException ex -> Status.FAILED_PRECONDITION.withDescription(ex.getMessage());
             // 502-equivalent: the payment-service call itself failed; the ticket is left PAYING.
             case PaymentServiceUnavailableException ex -> Status.UNAVAILABLE.withDescription(ex.getMessage());
             // 400-equivalent: every other ticket-status-machine validation failure (wrong status

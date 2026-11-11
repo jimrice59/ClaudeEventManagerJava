@@ -31,6 +31,7 @@ AVAILABLE◄─────────────────┘ releaseTicket
 | Transition | Method | Precondition (else 400, or 409 for PAYING) | Ownership check (else 403) | Result |
 |---|---|---|---|---|
 | → RESERVED | `reserveTicket(id)` | status is `AVAILABLE` | none — anyone can reserve an open ticket | `userId` = caller, status = `RESERVED` |
+| → RESERVED | `reserveAvailableTicket(eventId)` — same transition, ticket chosen by the server | event exists (else 404); some ticket for it is `AVAILABLE` and not row-locked by a concurrent call (else **409**, `NoTicketsAvailableException`) | none | same as `reserveTicket` on the lowest-id such ticket |
 | RESERVED → AVAILABLE | `releaseTicket(id)` | status is `RESERVED` | caller's id equals ticket's `userId` | `userId` = `null`, status = `AVAILABLE` |
 | RESERVED → PAYING | `purchaseTicket(id, paymentToken, paymentRequestId)` — Txn 1 (`beginPayment`) | status is `RESERVED`, **else 409 if already `PAYING`** (a concurrent attempt is in flight — see below) | caller's id equals ticket's `userId` | status = `PAYING`; `paymentRequestId` stamped (caller-supplied or generated) |
 | PAYING → SOLD / AVAILABLE | same call, Txn 2 (`completePayment`), after the gRPC call returns | n/a (status is already `PAYING` from Txn 1) | n/a | APPROVED → `SOLD`, `datePurchased` stamped to now, records `PURCHASE`; DECLINED → `AVAILABLE` + `userId=null` (`datePurchased` untouched), records `PAYMENT_DECLINED`; call failure (timeout/connection error) → **ticket stays `PAYING`**, no operation recorded, throws `PaymentServiceUnavailableException` (502) |
@@ -40,7 +41,9 @@ AVAILABLE◄─────────────────┘ releaseTicket
   `status == PAYING` first and throws `TicketPaymentInProgressException` (409 — a conflict with an
   attempt already in flight) before falling through to `sell()`'s ordinary "not RESERVED" check
   (400 — a precondition failure), so a double-submitted purchase request never starts a second
-  concurrent payment-service call for the same ticket.
+  concurrent payment-service call for the same ticket. That guarantee depends on `beginPayment`
+  reading the ticket under the row lock described below; the unlocked check alone didn't hold up
+  under concurrency.
 - **`purchaseTicket` is a saga, not one transaction** — `beginPayment` (RESERVED→PAYING) and
   `completePayment` (PAYING→SOLD/AVAILABLE) are each their own short transaction via
   `TransactionTemplate`, with the (up to 120-second) gRPC call to the payment service running with
@@ -69,6 +72,34 @@ AVAILABLE◄─────────────────┘ releaseTicket
 - **Initial state**: tickets are created `AVAILABLE` with `userId = null` as a side effect of
   `POST /api/v1/events` (`TicketService.createAvailableTickets`, one per unit of `ticketsTotal`) —
   there is no direct "create ticket" entry point.
+- **`reserveAvailableTicket` is a second entry point to the →RESERVED transition, not a sixth
+  transition**: it runs the same private `reserve()` helper, just on a ticket it selects itself via
+  `TicketRepository.lockNextAvailableTicket` (native `SELECT ... ORDER BY id LIMIT 1 FOR UPDATE
+  SKIP LOCKED`). The lock is what makes it safe under contention: without it, concurrent callers
+  would all read the same lowest-id row and both "reserve" it. With `SKIP LOCKED`, each skips rows
+  other in-flight calls hold, so N simultaneous requests reserve N different tickets (verified
+  against Postgres: 5 concurrent calls on an event with 2 AVAILABLE tickets → 2× 200 with distinct
+  ids, 3× 409). It's `@CachePut(key = "#result.id")`, since the ticket id is only known from the result.
+- **Every status transition row-locks the ticket**, via `TicketService.lockTicketOrThrow` →
+  `TicketRepository.findByIdForUpdate`. That covers `reserveTicket`, `releaseTicket`,
+  `cancelTicket`, and both purchase-saga steps (`beginPayment`, `completePayment`).
+  `reserveAvailableTicket` uses its own `SKIP LOCKED` query, and only read-only
+  `getTicketById` stays unlocked. The lock is held only within each short transaction, never
+  across the payment-service call between the two saga steps. Without it, `beginPayment`'s
+  `PAYING`→409 guard was itself racy. Reproduced against Postgres: 5 concurrent purchases of one
+  RESERVED ticket → **3× 200 and 3 `PURCHASE` operations** (a triple charge against a real payment
+  service), 2× 409. Now: 1× 200, 4× 409, one `PURCHASE`. Two concurrent cancels of a SOLD ticket
+  → one 200, one 400.
+- **History — `reserveTicket(id)` was the first to get the lock**,
+  (`@Lock(PESSIMISTIC_WRITE)` → `SELECT ... FOR UPDATE`). Before this, it read the ticket
+  unlocked, and `Ticket` has no `@Version`, so concurrent reserves of the *same* id all read
+  `AVAILABLE` and all returned 200 while the last write silently won. Reproduced against
+  Postgres: 6 concurrent reserves of one ticket by two users → 6× 200, but only one owner in the
+  row. Now: 1× 200, 5× 400 ("current status is RESERVED"). A pessimistic lock rather than
+  `@Version`, because there's no migration tool and `ddl-auto: update` would add a `version`
+  column that's NULL on every existing row. `findByIdForUpdate` deliberately has no `JOIN FETCH`,
+  so the lock covers only the ticket row, and reserves of different tickets for the same event
+  don't serialize (verified: two concurrent → both 200 in ~23ms).
 - All five transitions require authentication but not `ROLE_ADMIN` — ownership (`userId` match),
   not role, is what gates `release`/`purchase`/`cancel`; see authorization-model.md.
 - **No live "available" counter is stored anywhere** — `Event.ticketsTotal` is a fixed capacity set

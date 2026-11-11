@@ -5,6 +5,7 @@ import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.exception.NoTicketsAvailableException;
 import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
@@ -274,7 +275,7 @@ class TicketServiceTest {
 
     @Test
     void reserveTicket_succeedsAndStampsCallersUserId() {
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         authenticateAs("alice");
@@ -286,9 +287,49 @@ class TicketServiceTest {
     }
 
     @Test
+    void reserveAvailableTicket_reservesTheLockedTicketForTheCaller() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.reserveAvailableTicket(1L);
+
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getEventId()).isEqualTo(1L);
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
+        assertThat(result.getUserId()).isEqualTo(42L);
+    }
+
+    @Test
+    void reserveAvailableTicket_throwsNoTicketsAvailableWhenNoneLeft() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class)
+                .hasMessageContaining("event 1");
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void reserveAvailableTicket_throwsNotFoundWhenEventMissing() {
+        when(eventRepository.existsById(99L)).thenReturn(false);
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Event");
+        verify(ticketRepository, never()).lockNextAvailableTicket(any());
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
     void reserveTicket_throwsWhenNotCurrentlyAvailable() {
         ticket.setStatus(TicketStatus.SOLD);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         authenticateAs("alice");
 
         assertThatThrownBy(() -> ticketService.reserveTicket(1L))
@@ -299,7 +340,7 @@ class TicketServiceTest {
 
     @Test
     void reserveTicket_throwsWhenNotFound() {
-        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
         authenticateAs("alice");
 
         assertThatThrownBy(() -> ticketService.reserveTicket(99L))
@@ -310,7 +351,7 @@ class TicketServiceTest {
 
     @Test
     void reserveTicket_throwsWhenAuthenticatedUsernameHasNoMatchingUserRow() {
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
         authenticateAs("ghost");
 
@@ -326,7 +367,7 @@ class TicketServiceTest {
     void releaseTicket_succeedsAndClearsUserIdWhenReservedBySameUser() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         authenticateAs("alice");
@@ -340,7 +381,7 @@ class TicketServiceTest {
     @Test
     void releaseTicket_throwsWhenNotCurrentlyReserved() {
         // ticket is AVAILABLE (never reserved); the status check happens before any JWT lookup
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
 
         assertThatThrownBy(() -> ticketService.releaseTicket(1L))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -352,7 +393,7 @@ class TicketServiceTest {
     void releaseTicket_throwsAccessDeniedWhenReservedByDifferentUser() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L); // reserved by alice
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         User bob = User.builder().id(99L).username("bob").build();
         when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
         authenticateAs("bob");
@@ -364,7 +405,7 @@ class TicketServiceTest {
 
     @Test
     void releaseTicket_throwsWhenNotFound() {
-        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> ticketService.releaseTicket(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -378,7 +419,7 @@ class TicketServiceTest {
     void purchaseTicket_succeedsWhenReservedBySameUserAndPaymentApproved() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -420,7 +461,7 @@ class TicketServiceTest {
     void purchaseTicket_usesClientSuppliedPaymentRequestId() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -438,7 +479,7 @@ class TicketServiceTest {
     void purchaseTicket_movesBackToAvailableWhenPaymentDeclined() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -461,7 +502,7 @@ class TicketServiceTest {
     void purchaseTicket_throwsPaymentServiceUnavailableAndLeavesTicketPayingWhenCallFails() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(paymentServiceClient.purchaseTicket(any(), eq(42L), any(), eq(1L), any()))
@@ -484,7 +525,7 @@ class TicketServiceTest {
         ticket.setStatus(TicketStatus.PAYING);
         ticket.setUserId(42L);
         ticket.setPaymentRequestId("in-flight-request");
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
@@ -497,7 +538,7 @@ class TicketServiceTest {
     @Test
     void purchaseTicket_throwsWhenNotCurrentlyReserved() {
         // ticket is AVAILABLE (never reserved)
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
@@ -512,7 +553,7 @@ class TicketServiceTest {
     void purchaseTicket_throwsAccessDeniedWhenReservedByDifferentUser() {
         ticket.setStatus(TicketStatus.RESERVED);
         ticket.setUserId(42L); // reserved by alice
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         User bob = User.builder().id(99L).username("bob").build();
         when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
         authenticateAs("bob");
@@ -525,7 +566,7 @@ class TicketServiceTest {
 
     @Test
     void purchaseTicket_throwsWhenNotFound() {
-        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
@@ -542,7 +583,7 @@ class TicketServiceTest {
     void cancelTicket_succeedsWhenSoldToSameUser() {
         ticket.setStatus(TicketStatus.SOLD);
         ticket.setUserId(42L);
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
         when(ticketOperationRepository.save(any(TicketOperation.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -573,7 +614,7 @@ class TicketServiceTest {
         // ticket is AVAILABLE (never purchased); the status check happens before any JWT lookup...
         // except cancelTicket now resolves currentUserId() up front (to pass to cancel()), so the
         // JWT lookup does happen before the status check — unlike the pre-refactor version.
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
@@ -588,7 +629,7 @@ class TicketServiceTest {
     void cancelTicket_throwsAccessDeniedWhenPurchasedByDifferentUser() {
         ticket.setStatus(TicketStatus.SOLD);
         ticket.setUserId(42L); // purchased by alice
-        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         User bob = User.builder().id(99L).username("bob").build();
         when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
         authenticateAs("bob");
@@ -603,7 +644,7 @@ class TicketServiceTest {
     void cancelTicket_throwsWhenNotFound() {
         // findTicketOrThrow throws before currentUserId() is ever resolved — no userRepository
         // stub or authenticateAs call needed here (would trip UnnecessaryStubbingException).
-        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> ticketService.cancelTicket(99L))
                 .isInstanceOf(ResourceNotFoundException.class)

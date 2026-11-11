@@ -88,6 +88,27 @@ public class EventController {
         return ResponseEntity.ok(ticketService.getAvailableTickets(id, page, size));
     }
 
+    @Operation(summary = "Reserve the next available ticket for an event",
+               security = @SecurityRequirement(name = "bearerAuth"),
+               description = "Requires authentication (any role). Picks the lowest-id AVAILABLE ticket for the " +
+                             "event, stamps it with the caller's user id (from the JWT) and moves it to RESERVED — " +
+                             "the same end state as POST /api/v1/tickets/{id}/reserve, without choosing a ticket. " +
+                             "Concurrent calls reserve different tickets.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ticket reserved",
+                    content = @Content(schema = @Schema(implementation = TicketResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content),
+            @ApiResponse(responseCode = "404", description = "Event not found", content = @Content),
+            @ApiResponse(responseCode = "409", description = "No AVAILABLE tickets left for this event", content = @Content)
+    })
+    @PostMapping("/{id}/tickets/reserve")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<TicketResponse> reserveAvailableTicket(
+            @Parameter(description = "Event ID") @PathVariable Long id) {
+        log.debug("Received request to reserve next available ticket for event id={}", id);
+        return ResponseEntity.ok(ticketService.reserveAvailableTicket(id));
+    }
+
     @Operation(summary = "Create event", security = @SecurityRequirement(name = "bearerAuth"),
                description = "Requires ROLE_ADMIN. ticketsTotal must not exceed the venue's capacity and is fixed " +
                              "for the life of the event — it cannot be changed by a later update. " +

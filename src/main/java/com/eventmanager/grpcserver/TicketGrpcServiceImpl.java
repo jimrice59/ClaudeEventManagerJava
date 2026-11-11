@@ -3,6 +3,7 @@ package com.eventmanager.grpcserver;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.grpc.api.EventIdRequest;
 import com.eventmanager.grpc.api.GetTicketRequest;
 import com.eventmanager.grpc.api.PageQuery;
 import com.eventmanager.grpc.api.PerformerSummaryMessage;
@@ -51,6 +52,15 @@ public class TicketGrpcServiceImpl extends TicketGrpcServiceGrpc.TicketGrpcServi
     public void reserveTicket(TicketIdRequest request, StreamObserver<TicketMessage> responseObserver) {
         GrpcCallSupport.runAuthenticated(responseObserver, () -> {
             TicketResponse ticket = ticketService.reserveTicket(request.getId());
+            responseObserver.onNext(toMessage(ticket));
+            responseObserver.onCompleted();
+        });
+    }
+
+    @Override
+    public void reserveAvailableTicket(EventIdRequest request, StreamObserver<TicketMessage> responseObserver) {
+        GrpcCallSupport.runAuthenticated(responseObserver, () -> {
+            TicketResponse ticket = ticketService.reserveAvailableTicket(request.getId());
             responseObserver.onNext(toMessage(ticket));
             responseObserver.onCompleted();
         });

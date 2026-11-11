@@ -91,6 +91,8 @@ delete-RPC responses. Each `*GrpcService` generates an `ImplBase` to extend and 
   since `EventStatus`/`TicketStatus` both declare `AVAILABLE` and proto enums are flat per-file
   unless nested).
 - `TicketGrpcServiceImpl` — `GetTicket` (public) plus `GetMyTickets`/`ReserveTicket`/
+  `ReserveAvailableTicket` (`EventIdRequest`; `NoTicketsAvailableException` → `FAILED_PRECONDITION`,
+  the same 409-equivalent mapping `GrpcExceptionMapper` uses for `TicketPaymentInProgressException`)/
   `ReleaseTicket`/`PurchaseTicket`/`CancelTicket` (all `GrpcCallSupport.runAuthenticated` —
   ownership-gated inside `TicketService`, not role-gated), delegating straight to `TicketService` —
   including the full saga-style `purchaseTicket` (see ticket-status-state-machine.md);

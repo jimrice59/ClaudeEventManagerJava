@@ -36,6 +36,12 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage()));
     }
 
+    @ExceptionHandler(NoTicketsAvailableException.class)
+    public ResponseEntity<ErrorResponse> handleNoTicketsAvailable(NoTicketsAvailableException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(PaymentServiceUnavailableException.class)
     public ResponseEntity<ErrorResponse> handlePaymentServiceUnavailable(PaymentServiceUnavailableException ex) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)

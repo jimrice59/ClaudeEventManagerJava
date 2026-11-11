@@ -6,6 +6,7 @@ import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.exception.NoTicketsAvailableException;
 import com.eventmanager.exception.PaymentServiceUnavailableException;
 import com.eventmanager.exception.ResourceNotFoundException;
 import com.eventmanager.exception.TicketPaymentInProgressException;
@@ -145,11 +146,39 @@ public class TicketService {
     @Transactional
     public TicketResponse reserveTicket(Long id) {
         log.info("Reserving ticket id={}", id);
-        Ticket ticket = findTicketOrThrow(id);
+        Ticket ticket = lockTicketOrThrow(id);
         reserve(ticket);
         ticket.setStatus(TicketStatus.RESERVED);
         TicketResponse saved = toResponse(ticketRepository.save(ticket));
         log.info("Reserved ticket id={} for user id={}", saved.getId(), saved.getUserId());
+        return saved;
+    }
+
+    /**
+     * Reserves the next available ticket for an event on behalf of the authenticated caller, for
+     * callers who want "a ticket to this event" rather than a specific one. Same end state as
+     * {@link #reserveTicket}: status RESERVED, {@code userId} stamped from the JWT.
+     * <p>
+     * The ticket is chosen with {@link TicketRepository#lockNextAvailableTicket} ({@code FOR
+     * UPDATE SKIP LOCKED}), so concurrent calls for the same event reserve different tickets and
+     * never hand the same one to two callers. 404 if the event doesn't exist; 409
+     * ({@link NoTicketsAvailableException}) if it has no AVAILABLE ticket left. The cache key is
+     * the chosen ticket's id, only known from the result — hence {@code #result.id}.
+     */
+    @CachePut(value = "tickets", key = "#result.id")
+    @Transactional
+    public TicketResponse reserveAvailableTicket(Long eventId) {
+        log.info("Reserving next available ticket for event id={}", eventId);
+        if (!eventRepository.existsById(eventId)) {
+            throw new ResourceNotFoundException("Event", "id", eventId);
+        }
+        Ticket ticket = ticketRepository.lockNextAvailableTicket(eventId)
+                .orElseThrow(() -> new NoTicketsAvailableException(eventId));
+        reserve(ticket);
+        ticket.setStatus(TicketStatus.RESERVED);
+        TicketResponse saved = toResponse(ticketRepository.save(ticket));
+        log.info("Reserved ticket id={} (next available for event id={}) for user id={}",
+                saved.getId(), eventId, saved.getUserId());
         return saved;
     }
 
@@ -213,7 +242,7 @@ public class TicketService {
      * comes entirely from that explicit {@code TransactionTemplate}, not from an annotation.
      */
     private PendingPayment beginPayment(Long id, Long userId, String clientPaymentRequestId) {
-        Ticket ticket = findTicketOrThrow(id);
+        Ticket ticket = lockTicketOrThrow(id);
         if (ticket.getStatus() == TicketStatus.PAYING) {
             throw new TicketPaymentInProgressException(id);
         }
@@ -244,7 +273,7 @@ public class TicketService {
      * Not {@code @Transactional} for the same self-invocation reason as {@link #beginPayment}.
      */
     private TicketResponse completePayment(Long id, Long userId, String paymentRequestId, PaymentOutcome outcome) {
-        Ticket ticket = findTicketOrThrow(id);
+        Ticket ticket = lockTicketOrThrow(id);
         if (outcome.status() == PaymentOutcomeStatus.APPROVED) {
             ticket.setStatus(TicketStatus.SOLD);
             ticket.setDatePurchased(LocalDateTime.now());
@@ -288,7 +317,7 @@ public class TicketService {
     @Transactional
     public TicketResponse cancelTicket(Long id) {
         log.info("Cancelling ticket id={}", id);
-        Ticket ticket = findTicketOrThrow(id);
+        Ticket ticket = lockTicketOrThrow(id);
         Long userId = currentUserId();
         cancel(ticket, userId);
         ticket.setStatus(TicketStatus.AVAILABLE);
@@ -310,7 +339,7 @@ public class TicketService {
     @Transactional
     public TicketResponse releaseTicket(Long id) {
         log.info("Releasing ticket id={}", id);
-        Ticket ticket = findTicketOrThrow(id);
+        Ticket ticket = lockTicketOrThrow(id);
         release(ticket);
         ticket.setStatus(TicketStatus.AVAILABLE);
         ticket.setUserId(null);
@@ -428,6 +457,21 @@ public class TicketService {
 
     private Ticket findTicketOrThrow(Long id) {
         return ticketRepository.findByIdWithDetails(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Ticket", "id", id));
+    }
+
+    /**
+     * Row-locked lookup (SELECT ... FOR UPDATE, held until the current transaction commits) for
+     * every read-check-write status transition. Without it, two concurrent calls on the same
+     * ticket both read the old status, both pass the precondition check, and the last write
+     * silently wins — e.g. two concurrent purchases of one RESERVED ticket would both pass the
+     * PAYING→409 guard in beginPayment and both charge the card. With it, the second caller blocks,
+     * then reads the first caller's committed status and fails the check normally. Only used
+     * inside a transaction (@Transactional, or the purchase saga's TransactionTemplate steps —
+     * never across the payment-service call itself). See TicketRepository#findByIdForUpdate.
+     */
+    private Ticket lockTicketOrThrow(Long id) {
+        return ticketRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket", "id", id));
     }
 

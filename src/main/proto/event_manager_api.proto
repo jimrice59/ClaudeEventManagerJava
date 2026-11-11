@@ -34,6 +34,9 @@ service TicketGrpcService {
   rpc GetTicket(GetTicketRequest) returns (TicketMessage);
   rpc GetMyTickets(PageQuery) returns (TicketPageResponse);
   rpc ReserveTicket(TicketIdRequest) returns (TicketMessage);
+  // Reserves the next AVAILABLE ticket for the event (EventIdRequest.id); FAILED_PRECONDITION if
+  // none are left, NOT_FOUND if the event doesn't exist.
+  rpc ReserveAvailableTicket(EventIdRequest) returns (TicketMessage);
   rpc ReleaseTicket(TicketIdRequest) returns (TicketMessage);
   rpc PurchaseTicket(PurchaseTicketGrpcRequest) returns (TicketMessage);
   rpc CancelTicket(TicketIdRequest) returns (TicketMessage);
