@@ -80,6 +80,24 @@ AVAILABLE◄─────────────────┘ releaseTicket
   other in-flight calls hold, so N simultaneous requests reserve N different tickets (verified
   against Postgres: 5 concurrent calls on an event with 2 AVAILABLE tickets → 2× 200 with distinct
   ids, 3× 409). It's `@CachePut(key = "#result.id")`, since the ticket id is only known from the result.
+- **`reserveAvailableTicket` retries only one case.** An attempt can't lose its ticket to another
+  client, because it holds the row lock until commit, so there's nothing to retry there. It *can*
+  find nothing to lock while the event isn't sold out: every remaining AVAILABLE ticket may be
+  row-locked by in-flight transactions, and if one rolls back, its ticket is still AVAILABLE. So
+  when an attempt comes back empty, it checks `countByEventIdAndStatus(eventId, AVAILABLE)`:
+  - Zero means truly sold out → 409 immediately, no retry.
+  - Non-zero → back off `RESERVE_RETRY_BACKOFF_MS` (50ms) × attempt number and retry, up to
+    `ticket-reservation.max-retries` (`TicketReservationProperties`,
+    `TICKET_RESERVATION_MAX_RETRIES`, default 3, `@Min(0)`, 0 disables).
+
+  Each attempt is its own `TransactionTemplate` transaction, so no connection is held during
+  backoff; the method itself is therefore not `@Transactional`. Clients see no change (same
+  endpoint, responses, and 404/409), only up to 300ms extra latency at the default in the
+  contended case. Verified against Postgres by holding the event's AVAILABLE rows `FOR UPDATE`
+  from psql:
+  - locks released mid-request → 200 on attempt 3 (would have been a 409)
+  - locks held throughout → 3 retries then 409 in ~0.4s
+  - truly sold out → 409 in ~0.02s, no retry
 - **Every status transition row-locks the ticket**, via `TicketService.lockTicketOrThrow` →
   `TicketRepository.findByIdForUpdate`. That covers `reserveTicket`, `releaseTicket`,
   `cancelTicket`, and both purchase-saga steps (`beginPayment`, `completePayment`).

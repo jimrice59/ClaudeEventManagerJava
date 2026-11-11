@@ -45,6 +45,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -67,6 +68,10 @@ public class TicketService {
     private final PaymentCacheService paymentCacheService;
     private final PlatformTransactionManager transactionManager;
     private final CacheManager cacheManager;
+    private final TicketReservationProperties reservationProperties;
+
+    /** Linear backoff unit between reserveAvailableTicket attempts: 50ms, 100ms, 150ms, ... */
+    static final long RESERVE_RETRY_BACKOFF_MS = 50;
 
     // Optional: absent in the test profile (Cassandra autoconfiguration excluded). Field-injected
     // with required = false for the same reason CassandraAsyncWriter's repositories are — see
@@ -159,27 +164,63 @@ public class TicketService {
      * callers who want "a ticket to this event" rather than a specific one. Same end state as
      * {@link #reserveTicket}: status RESERVED, {@code userId} stamped from the JWT.
      * <p>
-     * The ticket is chosen with {@link TicketRepository#lockNextAvailableTicket} ({@code FOR
-     * UPDATE SKIP LOCKED}), so concurrent calls for the same event reserve different tickets and
-     * never hand the same one to two callers. 404 if the event doesn't exist; 409
-     * ({@link NoTicketsAvailableException}) if it has no AVAILABLE ticket left. The cache key is
-     * the chosen ticket's id, only known from the result — hence {@code #result.id}.
+     * Each attempt picks a ticket with {@link TicketRepository#lockNextAvailableTicket} ({@code FOR
+     * UPDATE SKIP LOCKED}), so concurrent calls reserve different tickets — an attempt can never
+     * lose "its" ticket to another client, because it holds the row lock until commit. What
+     * <em>can</em> happen is that every remaining AVAILABLE ticket is momentarily locked by other
+     * in-flight transactions, so SKIP LOCKED finds nothing although the event isn't sold out; if
+     * one of those transactions then rolls back, its ticket is still AVAILABLE. That's the only
+     * case this retries: when an attempt finds nothing but AVAILABLE tickets still exist, it backs
+     * off ({@link #RESERVE_RETRY_BACKOFF_MS} × attempt) and tries again, up to
+     * {@code ticket-reservation.max-retries} times. A truly sold-out event (zero AVAILABLE) fails
+     * immediately with no retry.
+     * <p>
+     * Each attempt is its own short transaction (TransactionTemplate, as in the purchase saga),
+     * so no connection is held while backing off. Unchanged for clients: same endpoint and
+     * responses — 404 if the event doesn't exist, 409 ({@link NoTicketsAvailableException}) if no
+     * ticket could be reserved — just up to sum-of-backoffs extra latency (300ms at the default 3
+     * retries) in the contended case. The cache key is the chosen ticket's id, only known from
+     * the result — hence {@code #result.id}.
      */
     @CachePut(value = "tickets", key = "#result.id")
-    @Transactional
     public TicketResponse reserveAvailableTicket(Long eventId) {
         log.info("Reserving next available ticket for event id={}", eventId);
         if (!eventRepository.existsById(eventId)) {
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
-        Ticket ticket = ticketRepository.lockNextAvailableTicket(eventId)
-                .orElseThrow(() -> new NoTicketsAvailableException(eventId));
-        reserve(ticket);
-        ticket.setStatus(TicketStatus.RESERVED);
-        TicketResponse saved = toResponse(ticketRepository.save(ticket));
-        log.info("Reserved ticket id={} (next available for event id={}) for user id={}",
-                saved.getId(), eventId, saved.getUserId());
-        return saved;
+        int maxRetries = reservationProperties.getMaxRetries();
+        TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        for (int attempt = 0; ; attempt++) {
+            Optional<TicketResponse> reserved = txTemplate.execute(status -> tryReserveNextAvailable(eventId));
+            if (reserved != null && reserved.isPresent()) {
+                TicketResponse saved = reserved.get();
+                log.info("Reserved ticket id={} (next available for event id={}, attempt {}) for user id={}",
+                        saved.getId(), eventId, attempt + 1, saved.getUserId());
+                return saved;
+            }
+            if (attempt >= maxRetries
+                    || ticketRepository.countByEventIdAndStatus(eventId, TicketStatus.AVAILABLE) == 0) {
+                throw new NoTicketsAvailableException(eventId);
+            }
+            long backoffMs = RESERVE_RETRY_BACKOFF_MS * (attempt + 1);
+            log.info("All AVAILABLE tickets for event id={} are locked by in-flight reservations; "
+                    + "retrying in {}ms (retry {}/{})", eventId, backoffMs, attempt + 1, maxRetries);
+            try {
+                Thread.sleep(backoffMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new NoTicketsAvailableException(eventId);
+            }
+        }
+    }
+
+    /** One reserveAvailableTicket attempt, run inside its own transaction; empty if nothing was lockable. */
+    private Optional<TicketResponse> tryReserveNextAvailable(Long eventId) {
+        return ticketRepository.lockNextAvailableTicket(eventId).map(ticket -> {
+            reserve(ticket);
+            ticket.setStatus(TicketStatus.RESERVED);
+            return toResponse(ticketRepository.save(ticket));
+        });
     }
 
     /**

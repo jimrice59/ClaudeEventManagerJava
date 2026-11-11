@@ -54,6 +54,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -99,11 +100,13 @@ class TicketServiceTest {
     private Ticket ticket;
     private User alice;
 
+    private final TicketReservationProperties reservationProperties = new TicketReservationProperties();
+
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(ticketRepository, eventRepository, userRepository,
                 ticketOperationRepository, cassandraAsyncWriter, paymentServiceClient, paymentCacheService,
-                transactionManager, cacheManager);
+                transactionManager, cacheManager, reservationProperties);
         // TicketCassandraRepository is field-injected (@Autowired(required = false)), matching
         // the optional-infrastructure-bean pattern documented for CassandraAsyncWriter — tests
         // that exercise the "Cassandra present" path inject it explicitly via ReflectionTestUtils.
@@ -303,15 +306,65 @@ class TicketServiceTest {
     }
 
     @Test
-    void reserveAvailableTicket_throwsNoTicketsAvailableWhenNoneLeft() {
+    void reserveAvailableTicket_failsImmediatelyWithoutRetryWhenSoldOut() {
         when(eventRepository.existsById(1L)).thenReturn(true);
         when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(0L);
         authenticateAs("alice");
 
         assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
                 .isInstanceOf(NoTicketsAvailableException.class)
                 .hasMessageContaining("event 1");
+        // Zero AVAILABLE means truly sold out — no point retrying, even with retries configured.
+        verify(ticketRepository, times(1)).lockNextAvailableTicket(1L);
         verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void reserveAvailableTicket_retriesWhenAllAvailableTicketsAreLockedThenSucceeds() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        // First attempt: SKIP LOCKED finds nothing although a ticket is AVAILABLE (it's locked by
+        // an in-flight transaction that then rolls back); second attempt gets it.
+        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty(), Optional.of(ticket));
+        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(1L);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.reserveAvailableTicket(1L);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
+        assertThat(result.getUserId()).isEqualTo(42L);
+        verify(ticketRepository, times(2)).lockNextAvailableTicket(1L);
+    }
+
+    @Test
+    void reserveAvailableTicket_givesUpAfterMaxRetriesWhileTicketsStayLocked() {
+        reservationProperties.setMaxRetries(2);
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
+        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(5L);
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class);
+        // 1 initial attempt + 2 retries; the client sees the same 409 as before.
+        verify(ticketRepository, times(3)).lockNextAvailableTicket(1L);
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void reserveAvailableTicket_zeroMaxRetriesMakesExactlyOneAttempt() {
+        reservationProperties.setMaxRetries(0);
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class);
+        verify(ticketRepository, times(1)).lockNextAvailableTicket(1L);
+        // Retries exhausted is checked first, so the extra count query is skipped.
+        verify(ticketRepository, never()).countByEventIdAndStatus(any(), any());
     }
 
     @Test
