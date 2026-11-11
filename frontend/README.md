@@ -1,4 +1,4 @@
-# Event Manager — Frontend
+# Foxy Ticket Service — Frontend
 
 A Vite + React 19 + TypeScript single-page app for the Event Manager REST API (`/api/v1/**`). This document describes how a client — i.e. a person using the app in a browser — interacts with it, end to end.
 

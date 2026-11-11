@@ -104,10 +104,12 @@ export function EventsPage() {
           To
           <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
         </label>
-        <button type="submit">Filter</button>
-        <button type="button" onClick={clearFilters}>
-          Clear
-        </button>
+        <div className="filter-actions">
+          <button type="submit">Filter</button>
+          <button type="button" onClick={clearFilters}>
+            Clear
+          </button>
+        </div>
       </form>
 
       <ErrorBanner message={error} />

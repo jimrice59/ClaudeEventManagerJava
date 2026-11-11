@@ -1,18 +1,28 @@
 :root {
-  --text: #3f3b46;
-  --text-h: #08060d;
-  --bg: #fff;
-  --bg-subtle: #f7f6fa;
-  --border: #e5e4e7;
-  --accent: #7c3aed;
-  --accent-hover: #6d28d9;
-  --accent-bg: rgba(124, 58, 237, 0.1);
-  --danger: #dc2626;
-  --danger-bg: rgba(220, 38, 38, 0.1);
-  --warning: #92690a;
-  --warning-bg: rgba(217, 155, 13, 0.15);
+  /* Foxy palette — warm fox orange on cream, deep-brown text. Contrast: text-h/text/text-muted on
+     both --bg and --bg-subtle, white on --accent, and --accent links on --bg all stay >= 4.5:1. */
+  --text: #4a3b33;
+  --text-h: #2b1d16;
+  --text-muted: #76655a;
+  --bg: #fdf6ee;
+  --bg-subtle: #ffffff;
+  --border: #efdfcf;
+  --accent: #c2410c;
+  --accent-hover: #9a3412;
+  --accent-bg: rgba(234, 88, 12, 0.12);
+  --on-accent: #ffffff;
+  --danger: #b91c1c;
+  --danger-bg: rgba(185, 28, 28, 0.08);
+  --warning: #854d0e;
+  --warning-bg: #fef3c7;
+  --success: #166534;
+  --success-bg: #dcfce7;
+  --shadow: 0 1px 2px rgba(67, 20, 7, 0.06), 0 6px 16px rgba(67, 20, 7, 0.07);
+  /* Header band: kept in the darker oranges so its white text stays >= 5:1 everywhere. */
+  --band: linear-gradient(120deg, #7c2d12 0%, #9a3412 45%, #c2410c 100%);
 
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
+  --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
 
   font: 16px/145% var(--sans);
   color-scheme: light dark;
@@ -24,18 +34,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #d1d0d6;
-    --text-h: #f3f4f6;
-    --bg: #15161b;
-    --bg-subtle: #1c1d24;
-    --border: #2e303a;
-    --accent: #a78bfa;
-    --accent-hover: #c4b5fd;
-    --accent-bg: rgba(167, 139, 250, 0.15);
+    --text: #e7d9cc;
+    --text-h: #fff7ef;
+    --text-muted: #b8a596;
+    --bg: #17110e;
+    --bg-subtle: #221915;
+    --border: #3b2b22;
+    --accent: #fb923c;
+    --accent-hover: #fdba74;
+    --accent-bg: rgba(251, 146, 60, 0.15);
+    --on-accent: #1c120d;
     --danger: #f87171;
     --danger-bg: rgba(248, 113, 113, 0.15);
     --warning: #facc15;
     --warning-bg: rgba(250, 204, 21, 0.15);
+    --success: #4ade80;
+    --success-bg: rgba(74, 222, 128, 0.14);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -56,7 +71,8 @@ h3 {
 }
 
 h1 {
-  font-size: 28px;
+  font-family: var(--display);
+  font-size: 30px;
 }
 h2 {
   font-size: 20px;
@@ -76,8 +92,7 @@ a:hover {
 }
 
 .muted {
-  color: var(--text);
-  opacity: 0.65;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
@@ -88,30 +103,166 @@ a:hover {
   padding: 24px 20px 64px;
 }
 
-.navbar {
+/* Site header: brand band (mascot + title + account) above the section tabs */
+.site-header {
+  box-shadow: var(--shadow);
+}
+
+.brand-band {
+  background: var(--band);
+  color: #fff;
+}
+
+.brand-band-inner,
+.navbar-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.brand-band-inner {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-top: 14px;
+  padding-bottom: 14px;
 }
 
-.navbar .brand {
-  color: var(--text-h);
-  font-weight: 700;
-  font-size: 18px;
-}
-
-.nav-links {
+.brand {
   display: flex;
-  gap: 16px;
-  flex: 1;
+  align-items: center;
+  gap: 14px;
+  color: #fff;
+}
+
+.brand:hover {
+  color: #fff;
+}
+
+.mascot-badge {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #fff7ed;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35), 0 4px 10px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease;
+}
+
+.brand:hover .mascot-badge {
+  transform: rotate(-8deg) scale(1.05);
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.brand-title {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: 0.2px;
+}
+
+.brand-tagline {
+  font-size: 14px;
+  color: #ffedd5;
 }
 
 .nav-auth {
   display: flex;
   align-items: center;
   gap: 12px;
+  font-size: 14px;
+}
+
+.nav-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.role-chip {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.band-link {
+  color: #fff;
+  font-weight: 500;
+}
+
+.band-link:hover {
+  color: #ffedd5;
+  text-decoration: underline;
+}
+
+.button.on-band,
+button.on-band {
+  background: #fff7ed;
+  border-color: #fff7ed;
+  color: #7c2d12;
+}
+
+.button.on-band:hover,
+button.on-band:hover:not(:disabled) {
+  background: #fff;
+  border-color: #fff;
+  color: #7c2d12;
+}
+
+.navbar {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar-inner {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.nav-tab {
+  padding: 12px 14px 10px;
+  color: var(--text-h);
+  font-weight: 500;
+  white-space: nowrap;
+  border-bottom: 3px solid transparent;
+}
+
+.nav-tab:hover {
+  color: var(--accent);
+}
+
+.nav-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+@media (max-width: 520px) {
+  .brand-title {
+    font-size: 22px;
+  }
+  .mascot-badge {
+    width: 52px;
+    height: 52px;
+  }
+  .mascot-badge .fox-mascot {
+    width: 42px;
+    height: 42px;
+  }
 }
 
 .page-header {
@@ -143,6 +294,12 @@ label {
   align-items: center;
   gap: 8px;
   font-weight: 400;
+}
+
+/* Same height for text-like inputs and selects, so a row of mixed fields lines up. */
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  min-height: 40px;
 }
 
 input,
@@ -191,7 +348,7 @@ button,
 
 button[type="submit"] {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-color: var(--accent);
 }
 
@@ -204,7 +361,7 @@ button:hover:not(:disabled),
 button[type="submit"]:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 button:disabled {
@@ -239,7 +396,21 @@ button.small {
 }
 
 .filter-bar label {
-  min-width: 160px;
+  flex: 1 1 150px;
+  /* Without min-width: 0 a date input's intrinsic width (~230px) can't shrink, widening the page
+     on phones and causing a horizontal scroll. */
+  min-width: 0;
+}
+
+.filter-bar input,
+.filter-bar select {
+  width: 100%;
+  min-width: 0;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .ticket-form {
@@ -256,9 +427,10 @@ button.small {
 /* Cards */
 .card {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 20px;
   background: var(--bg-subtle);
+  box-shadow: var(--shadow);
 }
 
 .form-card {
@@ -280,12 +452,15 @@ button.small {
 .event-card {
   color: inherit;
   display: block;
-  transition: border-color 0.15s ease;
+  border-top: 4px solid var(--accent);
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .event-card:hover {
   border-color: var(--accent);
   color: inherit;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(194, 65, 12, 0.18);
 }
 
 .detail-grid {
@@ -339,9 +514,9 @@ button.small {
 }
 
 .success-banner {
-  background: var(--accent-bg);
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid var(--success);
   border-radius: 6px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -362,9 +537,10 @@ button.small {
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 10px 14px;
   flex-wrap: wrap;
+  background: var(--bg-subtle);
 }
 
 .badge {
@@ -376,9 +552,8 @@ button.small {
 }
 
 .status-available {
-  background: var(--bg-subtle);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .status-reserved {
