@@ -66,8 +66,13 @@ export interface VideoRequest {
   url: string;
 }
 
+/**
+ * Query params for GET /api/v1/events. Every field is optional and the ones set are ANDed by the
+ * backend; start/end are inclusive and each works on its own. Undefined fields aren't sent.
+ */
 export interface EventListFilters {
   venueId?: number;
+  performerId?: number;
   start?: string;
   end?: string;
 }

@@ -30,7 +30,7 @@ For a production build: `npm run build` (output in `dist/`), then `npm run previ
 
 Open `http://localhost:5173`. The landing page is the Events list. Events, Performers, and Venues are all readable without logging in:
 
-- `/events` — list, with filters by venue or date range
+- `/events` — list, filterable by venue, performer, and/or a date range. Fill in any combination and they all apply together. "From" or "To" alone works as an open-ended range. Results are in date order.
 - `/events/:id` — detail: date, venue, price, remaining tickets, performer lineup
 - `/performers` — list, filterable by name (substring) or genre (exact)
 - `/performers/:id` — detail, including any video URLs on file

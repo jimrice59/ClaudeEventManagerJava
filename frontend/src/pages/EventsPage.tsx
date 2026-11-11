@@ -1,27 +1,32 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import * as eventsApi from "../api/events";
+import * as performersApi from "../api/performers";
 import * as venuesApi from "../api/venues";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { useAuth } from "../context/AuthContext";
-import type { EventResponse, VenueDto } from "../types";
+import type { EventListFilters, EventResponse, PerformerDto, VenueDto } from "../types";
 
 export function EventsPage() {
   const { isAdmin } = useAuth();
   const [events, setEvents] = useState<EventResponse[]>([]);
   const [venues, setVenues] = useState<VenueDto[]>([]);
+  const [performers, setPerformers] = useState<PerformerDto[]>([]);
   const [venueId, setVenueId] = useState("");
+  const [performerId, setPerformerId] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Dropdown options only — if either list fails to load, that filter just offers "Any".
     venuesApi.getVenues().then(setVenues).catch(() => undefined);
+    performersApi.getPerformers().then(setPerformers).catch(() => undefined);
   }, []);
 
-  async function loadEvents(filters: { venueId?: number; start?: string; end?: string } = {}) {
+  async function loadEvents(filters: EventListFilters = {}) {
     setLoading(true);
     setError(null);
     try {
@@ -39,19 +44,19 @@ export function EventsPage() {
 
   function handleFilter(event: FormEvent) {
     event.preventDefault();
-    if (venueId) {
-      loadEvents({ venueId: Number(venueId) });
-      return;
-    }
-    if (start && end) {
-      loadEvents({ start, end });
-      return;
-    }
-    loadEvents();
+    // Send every filter that's filled in; the backend ANDs them. Empty fields become undefined,
+    // which axios omits. A start after end comes back as a 400 whose message the banner shows.
+    loadEvents({
+      venueId: venueId ? Number(venueId) : undefined,
+      performerId: performerId ? Number(performerId) : undefined,
+      start: start || undefined,
+      end: end || undefined,
+    });
   }
 
   function clearFilters() {
     setVenueId("");
+    setPerformerId("");
     setStart("");
     setEnd("");
     loadEvents();
@@ -76,6 +81,17 @@ export function EventsPage() {
             {venues.map((v) => (
               <option key={v.id} value={v.id ?? undefined}>
                 {v.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Performer
+          <select value={performerId} onChange={(e) => setPerformerId(e.target.value)}>
+            <option value="">Any</option>
+            {performers.map((p) => (
+              <option key={p.id} value={p.id ?? undefined}>
+                {p.name}
               </option>
             ))}
           </select>
@@ -107,6 +123,9 @@ export function EventsPage() {
               <h3>{event.name}</h3>
               <p className="muted">{new Date(event.eventDate).toLocaleString()}</p>
               <p>{event.venue.name}</p>
+              {event.performers.length > 0 && (
+                <p className="muted">{event.performers.map((p) => p.name).join(", ")}</p>
+              )}
               <p className="muted">
                 ${event.ticketPrice.toFixed(2)} &middot; {event.ticketsTotal} tickets total
               </p>

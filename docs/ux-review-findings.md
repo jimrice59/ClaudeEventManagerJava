@@ -102,8 +102,6 @@ re-checked against the current code on that date.
 - `VenueFormPage.tsx:68-91`: none of the required fields (name/address/city/state) show an
   asterisk or visual required indicator (unlike the Thymeleaf equivalent which uses
   `<span class="text-danger">*</span>`), and there's no client-side state-code length hint.
-- `EventsPage.tsx:46-49`: the date-range filter silently no-ops if only "From" or only "To" is
-  filled — no message telling the user both are needed.
 
 **Confirmation/undo**
 - Delete actions (`EventDetailPage.tsx:55`, `PerformerDetailPage.tsx:66`, `VenuesPage.tsx:46`)
@@ -205,3 +203,8 @@ re-checked against the current code on that date.
   returned status — `SOLD` flashes success, anything else flashes a decline message — and the 502
   message explains the ticket is held as `PAYING` and needs support. Covered by
   `WebTicketControllerTest`.
+- **SPA date-range filter silently ignored a lone "From" or "To"** (`EventsPage`), and the venue
+  and date filters couldn't be combined (venue silently won). `GET /api/v1/events` now ANDs
+  `venueId`/`performerId`/`start`/`end` with one-sided bounds supported, and `EventsPage` sends
+  every filled-in field (plus a new Performer filter). A start after end shows the backend's 400
+  message in the error banner.
