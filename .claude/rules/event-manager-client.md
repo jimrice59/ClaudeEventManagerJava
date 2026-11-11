@@ -62,6 +62,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getTicket(id)` | GET | `/api/v1/tickets/{id}` | public |
 | `getAvailableTickets(eventId, page, size)` | GET | `/api/v1/events/{id}/tickets/available?page=&size=` | public |
 | `getMyTickets(page, size)` | GET | `/api/v1/tickets/me?page=&size=` | authenticated |
+| `getMyTransactions(page, size)` | GET | `/api/v1/tickets/me/transactions?page=&size=` | authenticated — `PagedResponse<TicketTransactionResponse>` (both copies; the `client/` module has its own `TicketTransactionResponse`/`TicketOperationType`, with `operationDate` as `OffsetDateTime`) |
 | `reserveTicket(id)` | POST | `/api/v1/tickets/{id}/reserve` | authenticated |
 | `reserveAvailableTicket(eventId)` | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated — the server picks the ticket; 409 (`HttpClientErrorException.Conflict`) if none is available |
 | `releaseTicket(id)` | POST | `/api/v1/tickets/{id}/release` | authenticated |
@@ -79,4 +80,4 @@ There is no `createTicket`/`deleteTicket` method — tickets have no external cr
 
 The module's DTOs still mirror the server's fields, so new server fields should be added to them, but forgetting no longer breaks callers.
 
-**Tests:** `client/src/test/.../EventManagerClientTest` (6, run with `cd client && mvn test`; `spring-boot-starter-test` is a test-scoped dependency of the module) binds `MockRestServiceServer` to the *real* `defaultRestTemplate()`, so it covers the mapper settings as well as request shapes. `getEvents_readsStatusAndIgnoresFieldsTheClientDoesNotKnow` is the regression test for the failure above (mutation-checked: removing the `FAIL_ON_UNKNOWN_PROPERTIES` line fails it with the same error). The in-app copy is covered separately by `src/test/.../client/EventManagerClientTest` (3).
+**Tests:** `client/src/test/.../EventManagerClientTest` (7, run with `cd client && mvn test`; `spring-boot-starter-test` is a test-scoped dependency of the module) binds `MockRestServiceServer` to the *real* `defaultRestTemplate()`, so it covers the mapper settings as well as request shapes. `getEvents_readsStatusAndIgnoresFieldsTheClientDoesNotKnow` is the regression test for the failure above (mutation-checked: removing the `FAIL_ON_UNKNOWN_PROPERTIES` line fails it with the same error). The in-app copy is covered separately by `src/test/.../client/EventManagerClientTest` (4).

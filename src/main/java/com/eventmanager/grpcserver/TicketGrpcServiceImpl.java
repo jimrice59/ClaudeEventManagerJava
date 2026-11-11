@@ -12,6 +12,9 @@ import com.eventmanager.grpc.api.TicketGrpcServiceGrpc;
 import com.eventmanager.grpc.api.TicketIdRequest;
 import com.eventmanager.grpc.api.TicketMessage;
 import com.eventmanager.grpc.api.TicketPageResponse;
+import com.eventmanager.dto.TicketTransactionResponse;
+import com.eventmanager.grpc.api.TicketTransactionPageResponse;
+import com.eventmanager.grpc.api.TicketTransactionMessage;
 import com.eventmanager.service.TicketService;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +49,39 @@ public class TicketGrpcServiceImpl extends TicketGrpcServiceGrpc.TicketGrpcServi
             responseObserver.onNext(toPageResponse(page));
             responseObserver.onCompleted();
         });
+    }
+
+    @Override
+    public void getMyTicketTransactions(PageQuery request, StreamObserver<TicketTransactionPageResponse> responseObserver) {
+        GrpcCallSupport.runAuthenticated(responseObserver, () -> {
+            PagedResponse<TicketTransactionResponse> page = ticketService.getMyTransactions(request.getPage(), request.getSize());
+            TicketTransactionPageResponse.Builder builder = TicketTransactionPageResponse.newBuilder()
+                    .setPage(page.getPage())
+                    .setSize(page.getSize())
+                    .setTotalElements(page.getTotalElements())
+                    .setTotalPages(page.getTotalPages())
+                    .setLast(page.isLast());
+            page.getContent().forEach(t -> builder.addContent(toTransactionMessage(t)));
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        });
+    }
+
+    private TicketTransactionMessage toTransactionMessage(TicketTransactionResponse t) {
+        TicketTransactionMessage.Builder b = TicketTransactionMessage.newBuilder()
+                .setId(t.getId())
+                .setTicketId(t.getTicketId())
+                .setEventId(t.getEventId())
+                .setEventName(t.getEventName() == null ? "" : t.getEventName())
+                .setOperation(t.getOperation().name())
+                .setPurchasePrice(t.getPurchasePrice().toPlainString())
+                .setPaymentService(t.getPaymentService())
+                .setPaymentConfirmationDetails(t.getPaymentConfirmationDetails())
+                .setOperationDate(t.getOperationDate().toString());
+        if (t.getPaymentRequestId() != null) {
+            b.setPaymentRequestId(t.getPaymentRequestId());
+        }
+        return b.build();
     }
 
     @Override

@@ -63,6 +63,23 @@ class EventManagerClientTest {
     }
 
     @Test
+    void getMyTransactions_getsThePagedTransactionsWithTheBearerToken() {
+        server.expect(requestTo(BASE + "/api/v1/tickets/me/transactions?page=0&size=20"))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer test-token"))
+                .andRespond(withSuccess("{\"content\":[{\"id\":10,\"ticketId\":1,\"eventId\":4,\"eventName\":\"Encore\","
+                        + "\"operation\":\"PURCHASE\",\"purchasePrice\":100.00,\"operationDate\":\"2026-11-11T22:39:51Z\"}],"
+                        + "\"page\":0,\"size\":20,\"totalElements\":1,\"totalPages\":1,\"last\":true}",
+                        MediaType.APPLICATION_JSON));
+
+        var page = client.getMyTransactions(0, 20);
+
+        assertThat(page.getContent().get(0).getEventName()).isEqualTo("Encore");
+        assertThat(page.getContent().get(0).getOperationDate()).isEqualTo(java.time.OffsetDateTime.parse("2026-11-11T22:39:51Z"));
+        server.verify();
+    }
+
+    @Test
     void searchEvents_sendsOnlyTheNonNullFilters() {
         server.expect(requestTo(BASE + "/api/v1/events?performerId=2&start=2026-06-01T00:00:00"))
                 .andExpect(method(HttpMethod.GET))

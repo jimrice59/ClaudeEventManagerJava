@@ -3,6 +3,7 @@ package com.eventmanager.controller;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PurchaseTicketRequest;
 import com.eventmanager.dto.TicketResponse;
+import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.service.TicketService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -64,6 +65,23 @@ public class TicketController {
             @Parameter(description = "Page size (1-100)") @RequestParam(defaultValue = "20") int size) {
         log.debug("Received request for current user's tickets: page={}, size={}", page, size);
         return ResponseEntity.ok(ticketService.getMyTickets(page, size));
+    }
+
+    @Operation(summary = "List my ticket transactions", security = @SecurityRequirement(name = "bearerAuth"),
+               description = "Requires authentication. A paginated page of the caller's purchases, declined " +
+                             "payments, and cancellations, newest first. operationDate carries a UTC offset. " +
+                             "The payment service's idempotency token is never included.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page of the caller's transactions (may be empty)"),
+            @ApiResponse(responseCode = "401", description = "Not authenticated", content = @Content)
+    })
+    @GetMapping("/me/transactions")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<PagedResponse<TicketTransactionResponse>> getMyTransactions(
+            @Parameter(description = "Page number, 0-based") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "Page size (1-100)") @RequestParam(defaultValue = "20") int size) {
+        log.debug("Received request for current user's transactions: page={}, size={}", page, size);
+        return ResponseEntity.ok(ticketService.getMyTransactions(page, size));
     }
 
     @Operation(summary = "Reserve a ticket", security = @SecurityRequirement(name = "bearerAuth"),

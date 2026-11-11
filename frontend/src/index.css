@@ -619,3 +619,90 @@ button.small {
   font-weight: 600;
   color: var(--text-h);
 }
+
+/* Transactions page: one row per transaction; wraps into a stacked card on narrow screens */
+.transaction-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transaction-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.transaction-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.transaction-event {
+  font-weight: 600;
+}
+
+.transaction-amount {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-h);
+  min-width: 0;
+}
+
+.transaction-amount .muted {
+  font-weight: 400;
+}
+
+.amount-void {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.confirmation {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 13px;
+}
+
+.op-purchase {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.op-payment-declined,
+.op-payment-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.op-cancel {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+@media (max-width: 640px) {
+  .transaction-list li {
+    /* Cap the amount column: its confirmation code is nowrap, and an "auto" column would grow to
+       fit it and crush the date into a sliver. Capped, the code truncates with an ellipsis. */
+    grid-template-columns: minmax(0, 1fr) minmax(0, 42%);
+  }
+  .transaction-main {
+    grid-column: 1 / -1;
+  }
+  .transaction-amount {
+    text-align: right;
+  }
+}

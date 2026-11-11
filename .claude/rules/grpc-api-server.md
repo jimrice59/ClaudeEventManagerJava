@@ -90,7 +90,7 @@ delete-RPC responses. Each `*GrpcService` generates an `ImplBase` to extend and 
   `PerformerMessage`) — dates/ticket price as strings, statuses as plain strings (not proto enums,
   since `EventStatus`/`TicketStatus` both declare `AVAILABLE` and proto enums are flat per-file
   unless nested).
-- `TicketGrpcServiceImpl` — `GetTicket` (public) plus `GetMyTickets`/`ReserveTicket`/
+- `TicketGrpcServiceImpl` — `GetTicket` (public) plus `GetMyTickets`/`GetMyTicketTransactions` (`PageQuery` → `TicketTransactionPageResponse`; dates as offset ISO strings, no idempotency token)/`ReserveTicket`/
   `ReserveAvailableTicket` (`EventIdRequest`; `NoTicketsAvailableException` → `FAILED_PRECONDITION`,
   the same 409-equivalent mapping `GrpcExceptionMapper` uses for `TicketPaymentInProgressException`)/
   `ReleaseTicket`/`PurchaseTicket`/`CancelTicket` (all `GrpcCallSupport.runAuthenticated` —

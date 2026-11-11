@@ -264,6 +264,19 @@ public class EventManagerClient {
     }
 
     /**
+     * Paginated list of the caller's ticket transactions (purchases, declined payments,
+     * cancellations), newest first. Requires {@link #login} or {@link #setToken} first.
+     */
+    public PagedResponse<TicketTransactionResponse> getMyTransactions(int page, int size) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/tickets/me/transactions")
+                .queryParam("page", page)
+                .queryParam("size", size)
+                .toUriString();
+        return restTemplate.exchange(url, HttpMethod.GET, authEntity(null),
+                new ParameterizedTypeReference<PagedResponse<TicketTransactionResponse>>() {}).getBody();
+    }
+
+    /**
      * Reserves the next available ticket for an event, letting the server choose which one.
      * Throws {@code HttpClientErrorException} with 404 if the event doesn't exist, or 409 if no
      * ticket is available.

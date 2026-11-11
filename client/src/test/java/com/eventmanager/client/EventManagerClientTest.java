@@ -108,6 +108,23 @@ class EventManagerClientTest {
     }
 
     @Test
+    void getMyTransactions_readsOffsetDatesAndOperationTypes() {
+        server.expect(requestTo(BASE + "/api/v1/tickets/me/transactions?page=0&size=20"))
+                .andExpect(header("Authorization", "Bearer test-token"))
+                .andRespond(withSuccess("""
+                        {"content":[{"id":10,"ticketId":1,"eventId":4,"eventName":"Encore","operation":"PAYMENT_DECLINED",
+                          "purchasePrice":100.00,"paymentService":"Square","paymentConfirmationDetails":"Payment declined",
+                          "paymentRequestId":"req-1","operationDate":"2026-11-11T22:39:51.469951Z"}],
+                         "page":0,"size":20,"totalElements":1,"totalPages":1,"last":true}""", MediaType.APPLICATION_JSON));
+
+        var t = client.getMyTransactions(0, 20).getContent().get(0);
+
+        assertThat(t.getOperation()).isEqualTo(com.eventmanager.client.dto.TicketOperationType.PAYMENT_DECLINED);
+        assertThat(t.getOperationDate().toInstant()).isEqualTo(java.time.Instant.parse("2026-11-11T22:39:51.469951Z"));
+        server.verify();
+    }
+
+    @Test
     void purchaseTicket_postsTokenAndRequestId() {
         server.expect(requestTo(BASE + "/api/v1/tickets/5/purchase"))
                 .andExpect(method(HttpMethod.POST))

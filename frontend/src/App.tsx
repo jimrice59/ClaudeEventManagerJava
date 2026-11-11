@@ -12,6 +12,7 @@ import { PerformerFormPage } from "./pages/PerformerFormPage";
 import { VenuesPage } from "./pages/VenuesPage";
 import { VenueFormPage } from "./pages/VenueFormPage";
 import { MyTicketsPage } from "./pages/MyTicketsPage";
+import { TransactionsPage } from "./pages/TransactionsPage";
 
 function App() {
   return (
@@ -66,6 +67,15 @@ function App() {
             element={
               <RequireAuth>
                 <MyTicketsPage />
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/transactions"
+            element={
+              <RequireAuth>
+                <TransactionsPage />
               </RequireAuth>
             }
           />

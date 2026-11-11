@@ -4,6 +4,7 @@ import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.PagedResponse;
+import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.NoTicketsAvailableException;
 import com.eventmanager.exception.PaymentServiceUnavailableException;
@@ -287,6 +288,49 @@ class TicketServiceTest {
 
         assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
         assertThat(result.getUserId()).isEqualTo(42L);
+    }
+
+    @Test
+    void getMyTransactions_returnsCallersOperationsNewestFirstWithEventNamesAndZonedDates() {
+        LocalDateTime purchasedAt = LocalDateTime.of(2026, 11, 11, 22, 39, 51);
+        TicketOperation purchase = TicketOperation.builder()
+                .id(10L).eventId(1L).ticketId(1L).userId(42L).operation(TicketOperationType.PURCHASE)
+                .purchasePrice(new BigDecimal("99.99")).paymentService("Square")
+                .paymentConfirmationDetails("SIMULATED-abc").paymentRequestId("req-1")
+                .idempotencyToken("secret-token").operationDate(purchasedAt).build();
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketOperationRepository.findByUserId(eq(42L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(purchase)));
+        when(eventRepository.findAllById(any())).thenReturn(List.of(event));
+        authenticateAs("alice");
+
+        PagedResponse<TicketTransactionResponse> page = ticketService.getMyTransactions(0, 20);
+
+        TicketTransactionResponse t = page.getContent().get(0);
+        assertThat(t.getId()).isEqualTo(10L);
+        assertThat(t.getEventName()).isEqualTo("Summer Rock Festival");
+        assertThat(t.getOperation()).isEqualTo(TicketOperationType.PURCHASE);
+        assertThat(t.getPaymentConfirmationDetails()).isEqualTo("SIMULATED-abc");
+        // Zone-less stored time, converted with the server's zone (the zone LocalDateTime.now() used).
+        assertThat(t.getOperationDate()).isEqualTo(purchasedAt.atZone(java.time.ZoneId.systemDefault()).toOffsetDateTime());
+        // Scoped to the caller and sorted newest first.
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketOperationRepository).findByUserId(eq(42L), pageable.capture());
+        assertThat(pageable.getValue().getSort().getOrderFor("operationDate").isDescending()).isTrue();
+    }
+
+    @Test
+    void getMyTransactions_clampsOversizedPageSize() {
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketOperationRepository.findByUserId(eq(42L), any(Pageable.class))).thenReturn(Page.empty());
+        when(eventRepository.findAllById(any())).thenReturn(List.of());
+        authenticateAs("alice");
+
+        ticketService.getMyTransactions(0, 5000);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(ticketOperationRepository).findByUserId(eq(42L), pageable.capture());
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
     }
 
     @Test

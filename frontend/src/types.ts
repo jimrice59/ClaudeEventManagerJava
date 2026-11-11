@@ -79,6 +79,25 @@ export interface EventListFilters {
 
 export type TicketStatus = "AVAILABLE" | "RESERVED" | "PAYING" | "SOLD";
 
+export type TicketOperationType = "PURCHASE" | "PAYMENT_DECLINED" | "CANCEL" | "PAYMENT_ERROR";
+
+/**
+ * One of the caller's ticket transactions (GET /api/v1/tickets/me/transactions). The server never
+ * sends the payment idempotency token. operationDate is ISO-8601 with a UTC offset.
+ */
+export interface TicketTransaction {
+  id: number;
+  ticketId: number;
+  eventId: number;
+  eventName: string | null;
+  operation: TicketOperationType;
+  purchasePrice: number;
+  paymentService: string;
+  paymentConfirmationDetails: string;
+  paymentRequestId: string | null;
+  operationDate: string;
+}
+
 export interface PerformerSummary {
   id: number;
   name: string;

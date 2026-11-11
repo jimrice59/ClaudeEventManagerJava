@@ -49,6 +49,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import com.eventmanager.dto.TicketTransactionResponse;
+import java.time.ZoneId;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.data.domain.Page;
 
 @Slf4j
 @Service
@@ -113,6 +118,45 @@ public class TicketService {
     public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
         log.debug("Fetching tickets for current user, page={}, size={}", page, size);
         return getTicketsByUserId(currentUserId(), page, size);
+    }
+
+    /**
+     * Paginated list of the caller's ticket transactions (their {@code TicketOperation} rows:
+     * PURCHASE, PAYMENT_DECLINED, CANCEL), newest first. Scoped to the caller's JWT user id, like
+     * {@link #getMyTickets}. Event names are looked up in one query per page; every remaining
+     * operation's event still exists, since deleting an event deletes its operations from Postgres.
+     * <p>
+     * {@code operationDate} is stored as a zone-less {@code LocalDateTime} stamped by
+     * {@code LocalDateTime.now()} in this JVM's default zone (UTC in the Docker image), so it is
+     * converted with that same zone into an {@code OffsetDateTime}. Clients then get an
+     * unambiguous instant and can show it in the viewer's own zone; sent zone-less, a browser would
+     * read UTC wall-clock time as its local time (8 hours off in PST).
+     */
+    @Transactional(readOnly = true)
+    public PagedResponse<TicketTransactionResponse> getMyTransactions(int page, int size) {
+        Long userId = currentUserId();
+        log.debug("Fetching transactions for user id={}, page={}, size={}", userId, page, size);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size),
+                Sort.by(Sort.Order.desc("operationDate"), Sort.Order.desc("id")));
+        Page<TicketOperation> operations = ticketOperationRepository.findByUserId(userId, pageable);
+        Set<Long> eventIds = operations.getContent().stream()
+                .map(TicketOperation::getEventId)
+                .collect(Collectors.toSet());
+        Map<Long, String> eventNames = eventRepository.findAllById(eventIds).stream()
+                .collect(Collectors.toMap(Event::getId, Event::getName));
+        ZoneId serverZone = ZoneId.systemDefault();
+        return PagedResponse.of(operations, op -> TicketTransactionResponse.builder()
+                .id(op.getId())
+                .ticketId(op.getTicketId())
+                .eventId(op.getEventId())
+                .eventName(eventNames.get(op.getEventId()))
+                .operation(op.getOperation())
+                .purchasePrice(op.getPurchasePrice())
+                .paymentService(op.getPaymentService())
+                .paymentConfirmationDetails(op.getPaymentConfirmationDetails())
+                .paymentRequestId(op.getPaymentRequestId())
+                .operationDate(op.getOperationDate().atZone(serverZone).toOffsetDateTime())
+                .build());
     }
 
     /** Internal: paginated list of tickets for a given user id, regardless of status. */

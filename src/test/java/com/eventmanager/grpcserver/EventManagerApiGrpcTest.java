@@ -14,6 +14,7 @@ import com.eventmanager.grpc.api.EventIdRequest;
 import com.eventmanager.grpc.api.EventMessage;
 import com.eventmanager.grpc.api.GetEventRequest;
 import com.eventmanager.grpc.api.ListEventsRequest;
+import com.eventmanager.grpc.api.PageQuery;
 import com.eventmanager.grpc.api.PerformerGrpcServiceGrpc;
 import com.eventmanager.grpc.api.PerformerIdRequest;
 import com.eventmanager.grpc.api.PerformerMessage;
@@ -249,6 +250,35 @@ class EventManagerApiGrpcTest {
 
         assertThat(response.getStatus()).isEqualTo("RESERVED");
         assertThat(response.getUserId()).isEqualTo(42L);
+    }
+
+    @Test
+    void getMyTicketTransactions_mapsTransactionsWithoutTheIdempotencyToken() {
+        when(ticketService.getMyTransactions(0, 20)).thenReturn(com.eventmanager.dto.PagedResponse
+                .<com.eventmanager.dto.TicketTransactionResponse>builder()
+                .content(java.util.List.of(com.eventmanager.dto.TicketTransactionResponse.builder()
+                        .id(10L).ticketId(1L).eventId(4L).eventName("Encore")
+                        .operation(com.eventmanager.model.TicketOperationType.PAYMENT_DECLINED)
+                        .purchasePrice(new java.math.BigDecimal("100.00")).paymentService("Square")
+                        .paymentConfirmationDetails("Payment declined").paymentRequestId("req-1")
+                        .operationDate(java.time.OffsetDateTime.parse("2026-11-11T22:39:51Z")).build()))
+                .page(0).size(20).totalElements(1).totalPages(1).last(true).build());
+        var authedStub = withBearerToken(ticketStub, validToken);
+
+        var response = authedStub.getMyTicketTransactions(PageQuery.newBuilder().setPage(0).setSize(20).build());
+
+        assertThat(response.getContentList()).hasSize(1);
+        assertThat(response.getContent(0).getOperation()).isEqualTo("PAYMENT_DECLINED");
+        assertThat(response.getContent(0).getOperationDate()).isEqualTo("2026-11-11T22:39:51Z");
+        assertThat(response.getContent(0).getPurchasePrice()).isEqualTo("100.00");
+    }
+
+    @Test
+    void getMyTicketTransactions_rejectedWithUnauthenticatedWhenNoTokenPresented() {
+        assertThatThrownBy(() -> ticketStub.getMyTicketTransactions(PageQuery.newBuilder().build()))
+                .isInstanceOf(StatusRuntimeException.class)
+                .satisfies(ex -> assertThat(((StatusRuntimeException) ex).getStatus().getCode())
+                        .isEqualTo(Status.Code.UNAUTHENTICATED));
     }
 
     @Test
