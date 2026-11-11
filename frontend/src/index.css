@@ -23,6 +23,7 @@
 
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --speedy: "Kanit", "Arial Narrow", system-ui, sans-serif;
 
   font: 16px/145% var(--sans);
   color-scheme: light dark;
@@ -173,9 +174,59 @@ a:hover {
   letter-spacing: 0.2px;
 }
 
+/* Tagline styled for speed: sporty italic (Kanit), trailing motion streaks, a lightning bolt, and
+   a one-time dash-in from the left on load (skipped under prefers-reduced-motion). */
 .brand-tagline {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
   color: #ffedd5;
+  animation: tagline-dash 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+
+.tagline-text {
+  font-family: var(--speedy);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.4px;
+}
+
+.speed-streaks {
+  flex-shrink: 0;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.speed-streaks path:nth-child(odd) {
+  stroke: #fdba74;
+}
+
+.speed-streaks path:nth-child(even) {
+  stroke: #fed7aa;
+}
+
+.speed-bolt {
+  flex-shrink: 0;
+  fill: #fde047;
+}
+
+@keyframes tagline-dash {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-tagline {
+    animation: none;
+  }
 }
 
 .nav-auth {
@@ -257,6 +308,9 @@ button.on-band:hover:not(:disabled) {
 @media (max-width: 520px) {
   .brand-title {
     font-size: 22px;
+  }
+  .tagline-text {
+    font-size: 14px;
   }
   .mascot-badge {
     width: 52px;

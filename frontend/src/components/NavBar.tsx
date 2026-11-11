@@ -27,7 +27,19 @@ export function NavBar() {
             </span>
             <span className="brand-text">
               <span className="brand-title">Foxy Ticket Service</span>
-              <span className="brand-tagline">Find a show. Grab a seat.</span>
+              {/* Speed cues: motion streaks trailing behind, a sporty italic, and a lightning bolt.
+                  The SVGs are decorative, so screen readers just read the text. */}
+              <span className="brand-tagline">
+                <svg className="speed-streaks" width="26" height="14" viewBox="0 0 26 14" aria-hidden="true">
+                  <path d="M2 3 H20" />
+                  <path d="M8 7 H24" />
+                  <path d="M4 11 H18" />
+                </svg>
+                <span className="tagline-text">Find a show. Grab a seat.</span>
+                <svg className="speed-bolt" width="14" height="18" viewBox="0 0 14 18" aria-hidden="true">
+                  <path d="M8.5 0 L1 10.5 H6.2 L4.8 18 L13 6.8 H7.8 Z" />
+                </svg>
+              </span>
             </span>
           </Link>
           <div className="nav-auth">
