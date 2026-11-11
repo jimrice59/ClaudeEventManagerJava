@@ -30,7 +30,7 @@ export function NavBar() {
               <span className="brand-title">Foxy Ticket Service</span>
               <span className="brand-tagline">
                 Find a show. Grab a seat.
-                <TicketStack width={48} />
+                <TicketStack width={54} />
               </span>
             </span>
           </Link>

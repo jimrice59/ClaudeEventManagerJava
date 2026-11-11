@@ -173,12 +173,18 @@ a:hover {
   letter-spacing: 0.2px;
 }
 
+/* Sized and weighted to hold its own under the 28px title: the original 14px regular was hard to
+   pick out. The faint shadow keeps it crisp over the lighter end of the header gradient. */
 .brand-tagline {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: #ffedd5;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: #fff7ed;
+  text-shadow: 0 1px 2px rgba(67, 20, 7, 0.45);
 }
 
 /* Decorative ticket stack after the tagline (TicketStack.tsx) */
@@ -265,6 +271,9 @@ button.on-band:hover:not(:disabled) {
 @media (max-width: 520px) {
   .brand-title {
     font-size: 22px;
+  }
+  .brand-tagline {
+    font-size: 16px;
   }
   .mascot-badge {
     width: 52px;
