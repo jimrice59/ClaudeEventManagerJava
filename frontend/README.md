@@ -52,7 +52,8 @@ The nav bar now shows the username and role, plus a **Log out** button. Concrete
 
 | Action | Where |
 |---|---|
-| Browse an event's available tickets and reserve one | Available Tickets list on `/events/:id` |
+| Browse an event's available tickets and reserve a specific one | Available Tickets list on `/events/:id` |
+| Reserve whichever ticket is next available, without choosing | **Reserve available ticket** on `/events/:id` |
 | See every ticket you own, across all events | **My Tickets** (`/my-tickets`) in the nav bar |
 | Purchase, or release, a reserved ticket | **Purchase** / **Release** on `/my-tickets` |
 | Cancel a purchased ticket | **Cancel** on `/my-tickets` |

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import * as eventsApi from "../api/events";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
@@ -13,6 +13,7 @@ export function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const eventId = Number(id);
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAdmin, isAuthenticated } = useAuth();
 
   const [event, setEvent] = useState<EventResponse | null>(null);
@@ -64,20 +65,35 @@ export function EventDetailPage() {
     }
   }
 
-  async function handleReserve(ticketId: number) {
+  /** Shared by both reserve buttons: run the reservation, then refresh the count and list. */
+  async function runReservation(reserve: () => Promise<TicketResponse>) {
     setActionPending(true);
     setError(null);
     setSuccessMessage(null);
     try {
-      await ticketsApi.reserveTicket(ticketId);
-      setSuccessMessage("Ticket reserved! Find it under My Tickets to purchase or release it.");
-      setNumAvailable(await eventsApi.getNumAvailableTickets(eventId));
-      await loadTickets();
+      const ticket = await reserve();
+      setSuccessMessage(`Ticket #${ticket.id} reserved! Find it under My Tickets to purchase or release it.`);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
+      // Refresh on failure too: a 400/409 usually means someone else just took the ticket(s),
+      // so the list and count on screen are stale either way.
+      try {
+        setNumAvailable(await eventsApi.getNumAvailableTickets(eventId));
+        await loadTickets();
+      } catch {
+        // Keep the reservation's own success/error message; a failed refresh isn't worth replacing it.
+      }
       setActionPending(false);
     }
+  }
+
+  function handleReserve(ticketId: number) {
+    return runReservation(() => ticketsApi.reserveTicket(ticketId));
+  }
+
+  function handleReserveAvailable() {
+    return runReservation(() => ticketsApi.reserveAvailableTicket(eventId));
   }
 
   if (loading) return <p>Loading...</p>;
@@ -124,7 +140,19 @@ export function EventDetailPage() {
         </dd>
       </dl>
 
-      <h2>Available Tickets</h2>
+      <div className="page-header">
+        <h2>Available Tickets</h2>
+        {numAvailable !== 0 &&
+          (isAuthenticated ? (
+            <button onClick={handleReserveAvailable} disabled={actionPending} className="button">
+              Reserve available ticket
+            </button>
+          ) : (
+            <Link to="/login" state={{ from: location }} className="button">
+              Log in to reserve
+            </Link>
+          ))}
+      </div>
       {!availableTickets || availableTickets.content.length === 0 ? (
         <p className="muted">No tickets currently available.</p>
       ) : (
@@ -138,7 +166,7 @@ export function EventDetailPage() {
                     Reserve
                   </button>
                 ) : (
-                  <Link to="/login" className="button small">
+                  <Link to="/login" state={{ from: location }} className="button small">
                     Log in to reserve
                   </Link>
                 )}

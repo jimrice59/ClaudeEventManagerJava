@@ -32,6 +32,15 @@ export async function reserveTicket(id: number): Promise<TicketResponse> {
   return data;
 }
 
+/**
+ * Reserves the next AVAILABLE ticket for an event — the server picks which one. 409 if none are
+ * left (the backend's message says so; surface it via extractErrorMessage).
+ */
+export async function reserveAvailableTicket(eventId: number): Promise<TicketResponse> {
+  const { data } = await apiClient.post<TicketResponse>(`/events/${eventId}/tickets/reserve`);
+  return data;
+}
+
 export async function releaseTicket(id: number): Promise<TicketResponse> {
   const { data } = await apiClient.post<TicketResponse>(`/tickets/${id}/release`);
   return data;
