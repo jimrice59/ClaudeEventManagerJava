@@ -54,6 +54,13 @@
             <version>${lombok.version}</version>
             <optional>true</optional>
         </dependency>
+
+        <!-- Tests only: JUnit 5, AssertJ, and Spring's MockRestServiceServer (version from the Boot parent) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

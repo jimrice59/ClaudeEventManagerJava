@@ -1,7 +1,9 @@
 package com.eventmanager.client;
 
 import com.eventmanager.client.dto.*;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.*;
@@ -228,6 +230,76 @@ public class EventManagerClient {
     }
 
     // -------------------------------------------------------------------------
+    // Tickets — created and deleted only as a side effect of event create/delete;
+    // no external create/delete operation exists.
+    // -------------------------------------------------------------------------
+
+    public TicketResponse getTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id, HttpMethod.GET, publicEntity(), TicketResponse.class).getBody();
+    }
+
+    /** Paginated AVAILABLE tickets for an event; page is 0-based, size 1–100. */
+    public PagedResponse<TicketResponse> getAvailableTickets(Long eventId, int page, int size) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/events/" + eventId + "/tickets/available")
+                .queryParam("page", page)
+                .queryParam("size", size)
+                .toUriString();
+        return restTemplate.exchange(url, HttpMethod.GET, publicEntity(),
+                new ParameterizedTypeReference<PagedResponse<TicketResponse>>() {}).getBody();
+    }
+
+    /** Paginated list of every ticket owned by the caller (requires {@link #login} or {@link #setToken} first). */
+    public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
+        String url = UriComponentsBuilder.fromUriString(baseUrl + "/api/v1/tickets/me")
+                .queryParam("page", page)
+                .queryParam("size", size)
+                .toUriString();
+        return restTemplate.exchange(url, HttpMethod.GET, authEntity(null),
+                new ParameterizedTypeReference<PagedResponse<TicketResponse>>() {}).getBody();
+    }
+
+    /** Reserves one specific AVAILABLE ticket for the caller. 400 if it isn't AVAILABLE. */
+    public TicketResponse reserveTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/reserve", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    /**
+     * Reserves the next available ticket for an event, letting the server choose which one.
+     * Throws {@code HttpClientErrorException} with 404 if the event doesn't exist, or 409 if no
+     * ticket is available.
+     */
+    public TicketResponse reserveAvailableTicket(Long eventId) {
+        return restTemplate.exchange(baseUrl + "/api/v1/events/" + eventId + "/tickets/reserve", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    /** Releases a ticket the caller has RESERVED, back to AVAILABLE. */
+    public TicketResponse releaseTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/release", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    /**
+     * Purchases a ticket the caller has RESERVED. Check the returned status: {@code SOLD} means the
+     * payment was approved, {@code AVAILABLE} means it was declined and the ticket was released.
+     * A 409 means a purchase of this ticket is already in progress; a 502 means the payment service
+     * couldn't be reached and the ticket is left {@code PAYING}.
+     *
+     * @param paymentToken a tokenized payment-method reference from the payment service, never raw card data
+     * @param paymentRequestId optional idempotency key; pass {@code null} to let the server generate one
+     *                         (returned on {@link TicketResponse#getPaymentRequestId()})
+     */
+    public TicketResponse purchaseTicket(Long id, String paymentToken, String paymentRequestId) {
+        PurchaseTicketRequest request = new PurchaseTicketRequest();
+        request.setPaymentToken(paymentToken);
+        request.setPaymentRequestId(paymentRequestId);
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/purchase", HttpMethod.POST, authEntity(request), TicketResponse.class).getBody();
+    }
+
+    /** Cancels a ticket the caller bought (SOLD), returning it to AVAILABLE. */
+    public TicketResponse cancelTicket(Long id) {
+        return restTemplate.exchange(baseUrl + "/api/v1/tickets/" + id + "/cancel", HttpMethod.POST, authEntity(null), TicketResponse.class).getBody();
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -258,8 +330,21 @@ public class EventManagerClient {
         return restTemplate.exchange(url, method, entity, type).getBody();
     }
 
-    private static RestTemplate defaultRestTemplate() {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    /**
+     * The RestTemplate behind the one-argument constructor. Its mapper is a <em>tolerant reader</em>:
+     * fields the server adds later are ignored, and enum values this client doesn't know (say, a
+     * new ticket status) read as {@code null}, instead of failing the whole call. A plain
+     * {@code new ObjectMapper()} does neither, which is why {@code getEvents()} broke as soon as
+     * the server added {@code EventResponse.status}. Dates are written as ISO-8601 strings
+     * (e.g. {@code 2026-06-01T19:00:00}), the format the API documents, rather than as arrays.
+     * Package-private for tests.
+     */
+    static RestTemplate defaultRestTemplate() {
+        ObjectMapper mapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .configure(DeserializationFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL, true)
+                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
         MappingJackson2HttpMessageConverter converter = new MappingJackson2HttpMessageConverter(mapper);
         RestTemplate rt = new RestTemplate();
         rt.getMessageConverters().removeIf(c -> c instanceof MappingJackson2HttpMessageConverter);

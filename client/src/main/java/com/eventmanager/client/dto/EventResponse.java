@@ -21,6 +21,8 @@ public class EventResponse {
     private LocalDateTime eventDate;
     private BigDecimal ticketPrice;
     private Integer ticketsTotal;
+    /** AVAILABLE normally; DELETING while the event is being deleted. */
+    private EventStatus status;
     private VenueDto venue;
     private Set<PerformerDto> performers;
     private LocalDateTime createdAt;

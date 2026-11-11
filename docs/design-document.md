@@ -1091,7 +1091,7 @@ Holds the performer, event, and ticket-operation repositories with `@Autowired(r
 
 ### EventManagerClient
 
-`com.eventmanager.client.EventManagerClient` is a `RestTemplate`-based client that covers every API endpoint. It is intended for use by other Spring applications that need to call this service programmatically. A second, smaller copy lives in the standalone `client/` Maven module: it covers auth, events, venues, and performers, but has **no ticket methods at all** (and no ticket DTOs).
+`com.eventmanager.client.EventManagerClient` is a `RestTemplate`-based client that covers every API endpoint. It is intended for use by other Spring applications that need to call this service programmatically. A second copy lives in the standalone `client/` Maven module, with its own DTOs and the same method set, tickets included. Unlike the in-app copy, it builds its own Jackson `ObjectMapper`, which is configured as a tolerant reader (see below).
 
 **Construction:**
 
@@ -1114,6 +1114,8 @@ client.setToken(oauthAccessToken);   // inject any bearer token
 Public `GET` endpoints (read operations on events, venues, performers) send no `Authorization` header and work without calling `login()` first.
 
 **Error handling:** 4xx responses throw `HttpClientErrorException`; 5xx responses throw `HttpServerErrorException`. Both carry the HTTP status and response body.
+
+**The `client/` module's tolerant reader:** its `ObjectMapper` ignores unknown fields (`FAIL_ON_UNKNOWN_PROPERTIES=false`), reads unknown enum values as `null`, and writes dates as ISO-8601 strings. Before 2026-11-11 it was a bare `new ObjectMapper()`, which rejects unknown fields, so as soon as the server added `EventResponse.status`, every module call returning events failed; this was confirmed against the live app. A test-scoped `spring-boot-starter-test` and `client/src/test/.../EventManagerClientTest` (6 tests, `cd client && mvn test`) now cover the real mapper settings, including a regression test for that failure.
 
 **Method reference:**
 
@@ -1173,7 +1175,7 @@ There is no `createTicket`/`deleteTicket` method — tickets have no external cr
 | `PaymentServiceClientTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Mocks the generated (final) `PaymentServiceBlockingStub`, which Mockito 5's inline mock maker allows. With `payment-service.enabled=false`, both methods return a simulated `APPROVED` and never touch the stub; enabled (the default), calls the stub and maps the proto response |
 | `WebTicketControllerTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 4 | Calls `WebTicketController.purchase()` directly with a `RedirectAttributesModelMap`: approved (`SOLD`) → `successMessage`; declined (returned normally as `AVAILABLE`) → `errorMessage` only; 502 → `errorMessage` mentioning `PAYING`; 409 → its own message |
 | `PerformerControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 16 | Full context with H2; mocks `PerformerService` |
-| `EventManagerClientTest` | Plain JUnit + `MockRestServiceServer` | 3 | No real server: `reserveAvailableTicket` posts to `/api/v1/events/{id}/tickets/reserve` with the bearer token, a 409 surfaces as `HttpClientErrorException.Conflict`, and `searchEvents` sends only its non-null filters. The `client/` module copy has no test dependencies and isn't tested |
+| `EventManagerClientTest` | Plain JUnit + `MockRestServiceServer` | 3 | No real server: `reserveAvailableTicket` posts to `/api/v1/events/{id}/tickets/reserve` with the bearer token, a 409 surfaces as `HttpClientErrorException.Conflict`, and `searchEvents` sends only its non-null filters. The `client/` module has its own 6 tests (see [EventManagerClient](#eventmanagerclient)) |
 | `EventControllerTest` | `@SpringBootTest + @AutoConfigureMockMvc` | 5 | Mocks `EventService`/`TicketService`: no params → `getAllEvents`; all four params → one combined `EventSearchCriteria`; `start` after `end` → 400; malformed date / non-numeric id → 400, not 500 |
 | `RateLimiterTest` | Mockito (`@ExtendWith(MockitoExtension.class)`) | 3 | Pure unit tests, no Spring context, no Redis |
 | `EdgeMetricsConfigTest` | Plain JUnit | 3 | Pure unit tests, no Spring context, no real `MeterRegistry` |
