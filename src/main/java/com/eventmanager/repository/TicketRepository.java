@@ -51,6 +51,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     @Query("SELECT MAX(t.id) FROM Ticket t WHERE t.event.id = :eventId")
     Long findMaxIdByEventId(@Param("eventId") Long eventId);
 
+    /** [eventId, max ticket id] for each given event; one grouped query for a whole page. */
+    @Query("SELECT t.event.id, MAX(t.id) FROM Ticket t WHERE t.event.id IN :eventIds GROUP BY t.event.id")
+    List<Object[]> findMaxIdsByEventIds(@Param("eventIds") java.util.Collection<Long> eventIds);
+
     /** Live count of tickets in a given status for an event — backs EventService/TicketService#getNumAvailableTickets. */
     long countByEventIdAndStatus(Long eventId, TicketStatus status);
 

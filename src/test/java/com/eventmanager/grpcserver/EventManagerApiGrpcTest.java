@@ -254,7 +254,7 @@ class EventManagerApiGrpcTest {
 
     @Test
     void getMyTicketTransactions_mapsTransactionsWithoutTheIdempotencyToken() {
-        when(ticketService.getMyTransactions(0, 20)).thenReturn(com.eventmanager.dto.PagedResponse
+        when(ticketService.getMyTransactions(0, 20)).thenReturn(com.eventmanager.dto.TicketListPage.of(com.eventmanager.dto.PagedResponse
                 .<com.eventmanager.dto.TicketTransactionResponse>builder()
                 .content(java.util.List.of(com.eventmanager.dto.TicketTransactionResponse.builder()
                         .id(10L).ticketId(1L).eventId(4L).eventName("Encore")
@@ -262,7 +262,7 @@ class EventManagerApiGrpcTest {
                         .purchasePrice(new java.math.BigDecimal("100.00")).paymentService("Square")
                         .paymentConfirmationDetails("Payment declined").paymentRequestId("req-1")
                         .operationDate(java.time.OffsetDateTime.parse("2026-11-11T22:39:51Z")).build()))
-                .page(0).size(20).totalElements(1).totalPages(1).last(true).build());
+                .page(0).size(20).totalElements(1).totalPages(1).last(true).build(), java.util.Map.of()));
         var authedStub = withBearerToken(ticketStub, validToken);
 
         var response = authedStub.getMyTicketTransactions(PageQuery.newBuilder().setPage(0).setSize(20).build());

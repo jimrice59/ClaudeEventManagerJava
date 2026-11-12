@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { formatDateTime, formatMoney, formatRelative } from "../utils/format";
-import type { PagedResponse, TicketOperationType, TicketTransaction } from "../types";
+import { TicketLabel } from "../components/TicketLabel";
+import { formatDateTime, formatMoney, formatRelative, ticketIdWidthFor } from "../utils/format";
+import type { TicketListPage, TicketOperationType, TicketTransaction } from "../types";
 
 const PAGE_SIZE = 20;
 
@@ -17,7 +18,7 @@ const LABELS: Record<TicketOperationType, string> = {
 
 /** The caller's purchases, declined payments, and cancellations, newest first. */
 export function TransactionsPage() {
-  const [transactions, setTransactions] = useState<PagedResponse<TicketTransaction> | null>(null);
+  const [transactions, setTransactions] = useState<TicketListPage<TicketTransaction> | null>(null);
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,13 @@ export function TransactionsPage() {
                     <Link to={`/events/${t.eventId}`} className="transaction-event">
                       {t.eventName ?? `Event #${t.eventId}`}
                     </Link>
-                    <div className="muted small">Ticket #{t.ticketId}</div>
+                    <div className="small">
+                      <TicketLabel
+                        id={t.ticketId}
+                        width={ticketIdWidthFor(transactions.maxTicketIdByEvent, t.eventId)}
+                        description={t.ticketDescription}
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="transaction-when">

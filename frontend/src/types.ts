@@ -87,6 +87,14 @@ export interface AvailableTicketsPage extends PagedResponse<TicketResponse> {
   maxTicketId: number | null;
 }
 
+/**
+ * GET /tickets/me and /tickets/me/transactions: a page that can span several events, plus each
+ * listed event's largest ticket id (keyed by event id), for padding ticket numbers per event.
+ */
+export interface TicketListPage<T> extends PagedResponse<T> {
+  maxTicketIdByEvent: Record<string, number>;
+}
+
 export type TicketOperationType = "PURCHASE" | "PAYMENT_DECLINED" | "CANCEL" | "PAYMENT_ERROR";
 
 /**
@@ -96,6 +104,7 @@ export type TicketOperationType = "PURCHASE" | "PAYMENT_DECLINED" | "CANCEL" | "
 export interface TicketTransaction {
   id: number;
   ticketId: number;
+  ticketDescription: string | null;
   eventId: number;
   eventName: string | null;
   operation: TicketOperationType;

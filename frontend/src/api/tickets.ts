@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { AvailableTicketsPage, PagedResponse, TicketResponse, TicketTransaction } from "../types";
+import type { AvailableTicketsPage, TicketListPage, TicketResponse, TicketTransaction } from "../types";
 
 export async function getTicket(id: number): Promise<TicketResponse> {
   const { data } = await apiClient.get<TicketResponse>(`/tickets/${id}`);
@@ -20,8 +20,8 @@ export async function getAvailableTickets(
 }
 
 /** Paginated list of every ticket owned by the logged-in user, across all events. */
-export async function getMyTickets(page = 0, size = 20): Promise<PagedResponse<TicketResponse>> {
-  const { data } = await apiClient.get<PagedResponse<TicketResponse>>("/tickets/me", {
+export async function getMyTickets(page = 0, size = 20): Promise<TicketListPage<TicketResponse>> {
+  const { data } = await apiClient.get<TicketListPage<TicketResponse>>("/tickets/me", {
     params: { page, size },
   });
   return data;
@@ -33,8 +33,8 @@ export async function reserveTicket(id: number): Promise<TicketResponse> {
 }
 
 /** Paginated list of the caller's ticket transactions, newest first. */
-export async function getMyTransactions(page = 0, size = 20): Promise<PagedResponse<TicketTransaction>> {
-  const { data } = await apiClient.get<PagedResponse<TicketTransaction>>("/tickets/me/transactions", {
+export async function getMyTransactions(page = 0, size = 20): Promise<TicketListPage<TicketTransaction>> {
+  const { data } = await apiClient.get<TicketListPage<TicketTransaction>>("/tickets/me/transactions", {
     params: { page, size },
   });
   return data;

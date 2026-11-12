@@ -1,6 +1,7 @@
 package com.eventmanager.controller;
 
 import com.eventmanager.dto.PagedResponse;
+import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.model.TicketOperationType;
 import com.eventmanager.service.TicketService;
@@ -57,14 +58,16 @@ class TicketControllerTest {
                 .paymentConfirmationDetails("SIMULATED-abc").paymentRequestId("req-1")
                 .operationDate(OffsetDateTime.of(2026, 11, 11, 22, 39, 51, 0, ZoneOffset.UTC)).build();
         when(ticketService.getMyTransactions(anyInt(), anyInt()))
-                .thenReturn(PagedResponse.<TicketTransactionResponse>builder()
-                        .content(List.of(t)).page(0).size(20).totalElements(1).totalPages(1).last(true).build());
+                .thenReturn(TicketListPage.of(PagedResponse.<TicketTransactionResponse>builder()
+                        .content(List.of(t)).page(0).size(20).totalElements(1).totalPages(1).last(true).build(),
+                        java.util.Map.of(4L, 60003L)));
 
         mockMvc.perform(get("/api/v1/tickets/me/transactions"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].eventName").value("Encore"))
                 .andExpect(jsonPath("$.content[0].operation").value("PURCHASE"))
                 .andExpect(jsonPath("$.content[0].operationDate").value("2026-11-11T22:39:51Z"))
+                .andExpect(jsonPath("$.maxTicketIdByEvent['4']").value(60003))
                 .andExpect(content().string(not(containsString("idempotency"))));
     }
 }

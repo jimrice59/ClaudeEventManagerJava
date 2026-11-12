@@ -4,6 +4,7 @@ import * as eventsApi from "../api/events";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "./ErrorBanner";
+import { TicketLabel } from "./TicketLabel";
 import type { TicketResponse } from "../types";
 
 /** Outcome reported back to the parent so it can show a banner and reload the list. */
@@ -26,6 +27,8 @@ function newPaymentRequestId(): string {
 
 interface Props {
   ticket: TicketResponse;
+  /** Width to pad the ticket number to (its event's, see ticketIdWidth). */
+  idWidth: number;
   onDone: (result: PurchaseResult) => void;
   onCancel: () => void;
 }
@@ -36,7 +39,7 @@ interface Props {
  * request may or may not have reached the backend) is idempotent end to end — the backend and
  * the payment service see the same id rather than a fresh one per attempt.
  */
-export function PurchasePanel({ ticket, onDone, onCancel }: Props) {
+export function PurchasePanel({ ticket, idWidth, onDone, onCancel }: Props) {
   const [paymentRequestId] = useState(newPaymentRequestId);
   const [paymentToken, setPaymentToken] = useState("");
   const [price, setPrice] = useState<number | null>(null);
@@ -82,7 +85,7 @@ export function PurchasePanel({ ticket, onDone, onCancel }: Props) {
       <div className="purchase-summary">
         <strong>Checkout</strong>
         <span>
-          Ticket #{ticket.id} &middot; {ticket.eventName}
+          <TicketLabel id={ticket.id} width={idWidth} description={ticket.description} /> &middot; {ticket.eventName}
         </span>
         <span className="purchase-price">{price === null ? "Price unavailable" : `$${price.toFixed(2)}`}</span>
       </div>

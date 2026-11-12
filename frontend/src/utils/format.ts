@@ -59,3 +59,13 @@ export function ticketIdWidth(maxTicketId: number | null | undefined, ticketsTot
 export function formatTicketId(id: number, width: number): string {
   return String(id).padStart(width, "0");
 }
+
+/** Plain-text form of TicketLabel, for messages: "Ticket 00007 Open Seating". */
+export function ticketLabelText(id: number, width: number, description?: string | null): string {
+  return `Ticket ${formatTicketId(id, width)}${description ? ` ${description}` : ""}`;
+}
+
+/** Width for a ticket on a page that spans events, from that page's maxTicketIdByEvent map. */
+export function ticketIdWidthFor(maxTicketIdByEvent: Record<string, number> | undefined, eventId: number): number {
+  return ticketIdWidth(maxTicketIdByEvent?.[String(eventId)], 0);
+}

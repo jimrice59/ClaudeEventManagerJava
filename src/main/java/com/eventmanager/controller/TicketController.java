@@ -2,6 +2,7 @@ package com.eventmanager.controller;
 
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PurchaseTicketRequest;
+import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.service.TicketService;
@@ -60,7 +61,7 @@ public class TicketController {
     })
     @GetMapping("/me")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<PagedResponse<TicketResponse>> getMyTickets(
+    public ResponseEntity<TicketListPage<TicketResponse>> getMyTickets(
             @Parameter(description = "Page number, 0-based") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size (1-100)") @RequestParam(defaultValue = "20") int size) {
         log.debug("Received request for current user's tickets: page={}, size={}", page, size);
@@ -77,7 +78,7 @@ public class TicketController {
     })
     @GetMapping("/me/transactions")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<PagedResponse<TicketTransactionResponse>> getMyTransactions(
+    public ResponseEntity<TicketListPage<TicketTransactionResponse>> getMyTransactions(
             @Parameter(description = "Page number, 0-based") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size (1-100)") @RequestParam(defaultValue = "20") int size) {
         log.debug("Received request for current user's transactions: page={}, size={}", page, size);

@@ -4,7 +4,8 @@ import * as eventsApi from "../api/events";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
-import { formatTicketId, ticketIdWidth } from "../utils/format";
+import { TicketLabel } from "../components/TicketLabel";
+import { ticketIdWidth, ticketLabelText } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
 import type { AvailableTicketsPage, EventResponse, TicketResponse } from "../types";
 
@@ -73,7 +74,9 @@ export function EventDetailPage() {
     setSuccessMessage(null);
     try {
       const ticket = await reserve();
-      setSuccessMessage(`Ticket #${ticket.id} reserved! Find it under My Tickets to purchase or release it.`);
+      setSuccessMessage(
+        `${ticketLabelText(ticket.id, idWidth, ticket.description)} reserved! Find it under My Tickets to purchase or release it.`,
+      );
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -164,10 +167,7 @@ export function EventDetailPage() {
           <ul className="ticket-list">
             {availableTickets.content.map((ticket) => (
               <li key={ticket.id}>
-                <span className="ticket-label">
-                  Ticket <span className="ticket-number">{formatTicketId(ticket.id, idWidth)}</span>
-                  {ticket.description && <span className="ticket-description"> {ticket.description}</span>}
-                </span>
+                <TicketLabel id={ticket.id} width={idWidth} description={ticket.description} />
                 {isAuthenticated ? (
                   <button onClick={() => handleReserve(ticket.id)} disabled={actionPending} className="button small">
                     Reserve

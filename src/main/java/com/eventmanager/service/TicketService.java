@@ -5,6 +5,7 @@ import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
+import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.NoTicketsAvailableException;
@@ -121,9 +122,23 @@ public class TicketService {
      * arbitrary user id" variant could be added later without disturbing this one.
      */
     @Transactional(readOnly = true)
-    public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
+    public TicketListPage<TicketResponse> getMyTickets(int page, int size) {
         log.debug("Fetching tickets for current user, page={}, size={}", page, size);
-        return getTicketsByUserId(currentUserId(), page, size);
+        PagedResponse<TicketResponse> tickets = getTicketsByUserId(currentUserId(), page, size);
+        return TicketListPage.of(tickets, maxTicketIdsByEvent(
+                tickets.getContent().stream().map(TicketResponse::getEventId).collect(Collectors.toSet())));
+    }
+
+    /**
+     * Event id -> that event's largest ticket id, for padding ticket numbers to the same per-event
+     * width the event page uses (see TicketListPage). One grouped query; empty input, no query.
+     */
+    private Map<Long, Long> maxTicketIdsByEvent(Set<Long> eventIds) {
+        if (eventIds.isEmpty()) {
+            return Map.of();
+        }
+        return ticketRepository.findMaxIdsByEventIds(eventIds).stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
     }
 
     /**
@@ -139,7 +154,7 @@ public class TicketService {
      * read UTC wall-clock time as its local time (8 hours off in PST).
      */
     @Transactional(readOnly = true)
-    public PagedResponse<TicketTransactionResponse> getMyTransactions(int page, int size) {
+    public TicketListPage<TicketTransactionResponse> getMyTransactions(int page, int size) {
         Long userId = currentUserId();
         log.debug("Fetching transactions for user id={}, page={}, size={}", userId, page, size);
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size),
@@ -150,10 +165,15 @@ public class TicketService {
                 .collect(Collectors.toSet());
         Map<Long, String> eventNames = eventRepository.findAllById(eventIds).stream()
                 .collect(Collectors.toMap(Event::getId, Event::getName));
+        // Ticket descriptions (nullable, so not via toMap, which rejects null values).
+        Map<Long, String> ticketDescriptions = new java.util.HashMap<>();
+        ticketRepository.findAllById(operations.getContent().stream().map(TicketOperation::getTicketId).collect(Collectors.toSet()))
+                .forEach(t -> ticketDescriptions.put(t.getId(), t.getDescription()));
         ZoneId serverZone = ZoneId.systemDefault();
-        return PagedResponse.of(operations, op -> TicketTransactionResponse.builder()
+        PagedResponse<TicketTransactionResponse> transactions = PagedResponse.of(operations, op -> TicketTransactionResponse.builder()
                 .id(op.getId())
                 .ticketId(op.getTicketId())
+                .ticketDescription(ticketDescriptions.get(op.getTicketId()))
                 .eventId(op.getEventId())
                 .eventName(eventNames.get(op.getEventId()))
                 .operation(op.getOperation())
@@ -163,6 +183,7 @@ public class TicketService {
                 .paymentRequestId(op.getPaymentRequestId())
                 .operationDate(op.getOperationDate().atZone(serverZone).toOffsetDateTime())
                 .build());
+        return TicketListPage.of(transactions, maxTicketIdsByEvent(eventIds));
     }
 
     /** Internal: paginated list of tickets for a given user id, regardless of status. */

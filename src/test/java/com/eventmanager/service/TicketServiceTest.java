@@ -5,6 +5,7 @@ import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
 import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
+import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.NoTicketsAvailableException;
@@ -248,12 +249,15 @@ class TicketServiceTest {
         authenticateAs("alice");
         Page<Ticket> page = new PageImpl<>(List.of(ticket));
         when(ticketRepository.findByUserId(eq(42L), any(Pageable.class))).thenReturn(page);
+        when(ticketRepository.findMaxIdsByEventIds(Set.of(1L))).thenReturn(List.<Object[]>of(new Object[]{1L, 60003L}));
 
-        PagedResponse<TicketResponse> result = ticketService.getMyTickets(0, 20);
+        TicketListPage<TicketResponse> result = ticketService.getMyTickets(0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getEventName()).isEqualTo("Summer Rock Festival");
         assertThat(result.getTotalElements()).isEqualTo(1);
+        // Each listed event's largest ticket id, for padding ticket numbers like the event page does.
+        assertThat(result.getMaxTicketIdByEvent()).containsExactly(java.util.Map.entry(1L, 60003L));
     }
 
     @Test
@@ -306,12 +310,17 @@ class TicketServiceTest {
         when(ticketOperationRepository.findByUserId(eq(42L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(purchase)));
         when(eventRepository.findAllById(any())).thenReturn(List.of(event));
+        ticket.setDescription("Open Seating");
+        when(ticketRepository.findAllById(Set.of(1L))).thenReturn(List.of(ticket));
+        when(ticketRepository.findMaxIdsByEventIds(Set.of(1L))).thenReturn(List.<Object[]>of(new Object[]{1L, 60003L}));
         authenticateAs("alice");
 
-        PagedResponse<TicketTransactionResponse> page = ticketService.getMyTransactions(0, 20);
+        TicketListPage<TicketTransactionResponse> page = ticketService.getMyTransactions(0, 20);
 
         TicketTransactionResponse t = page.getContent().get(0);
         assertThat(t.getId()).isEqualTo(10L);
+        assertThat(t.getTicketDescription()).isEqualTo("Open Seating");
+        assertThat(page.getMaxTicketIdByEvent()).containsExactly(java.util.Map.entry(1L, 60003L));
         assertThat(t.getEventName()).isEqualTo("Summer Rock Festival");
         assertThat(t.getOperation()).isEqualTo(TicketOperationType.PURCHASE);
         assertThat(t.getPaymentConfirmationDetails()).isEqualTo("SIMULATED-abc");

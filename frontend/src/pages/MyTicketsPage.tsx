@@ -4,12 +4,14 @@ import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { PurchasePanel, type PurchaseResult } from "../components/PurchasePanel";
-import type { PagedResponse, TicketResponse } from "../types";
+import { TicketLabel } from "../components/TicketLabel";
+import { ticketIdWidthFor, ticketLabelText } from "../utils/format";
+import type { TicketListPage, TicketResponse } from "../types";
 
 const PAGE_SIZE = 20;
 
 export function MyTicketsPage() {
-  const [tickets, setTickets] = useState<PagedResponse<TicketResponse> | null>(null);
+  const [tickets, setTickets] = useState<TicketListPage<TicketResponse> | null>(null);
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,7 +42,13 @@ export function MyTicketsPage() {
     setSuccessMessage(null);
     switch (result.kind) {
       case "approved":
-        setSuccessMessage(`Payment approved — ticket #${result.ticket.id} for ${result.ticket.eventName} is yours.`);
+        setSuccessMessage(
+          `Payment approved — ${ticketLabelText(
+            result.ticket.id,
+            ticketIdWidthFor(tickets?.maxTicketIdByEvent, result.ticket.eventId),
+            result.ticket.description,
+          )} for ${result.ticket.eventName} is yours.`,
+        );
         break;
       case "declined":
         setError("Payment was declined. The ticket has been released; reserve it again to try another payment method.");
@@ -112,6 +120,13 @@ export function MyTicketsPage() {
             {tickets.content.map((ticket) => (
               <li key={ticket.id}>
                 <div>
+                  <div>
+                    <TicketLabel
+                      id={ticket.id}
+                      width={ticketIdWidthFor(tickets.maxTicketIdByEvent, ticket.eventId)}
+                      description={ticket.description}
+                    />
+                  </div>
                   <Link to={`/events/${ticket.eventId}`}>{ticket.eventName}</Link>
                   <div className="muted small">
                     {new Date(ticket.eventDate).toLocaleString()} &middot; {ticket.venueName}
@@ -149,6 +164,7 @@ export function MyTicketsPage() {
                 {purchasingId === ticket.id && (
                   <PurchasePanel
                     ticket={ticket}
+                    idWidth={ticketIdWidthFor(tickets.maxTicketIdByEvent, ticket.eventId)}
                     onDone={handlePurchaseDone}
                     onCancel={() => setPurchasingId(null)}
                   />

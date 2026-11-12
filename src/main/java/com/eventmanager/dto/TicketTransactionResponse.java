@@ -30,6 +30,9 @@ public class TicketTransactionResponse implements Serializable {
     @Schema(description = "Ticket the transaction applies to", example = "6")
     private Long ticketId;
 
+    @Schema(description = "The ticket's description (e.g. \"Open Seating\"); null for tickets created before descriptions existed")
+    private String ticketDescription;
+
     @Schema(example = "4")
     private Long eventId;
 
