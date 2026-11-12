@@ -79,6 +79,14 @@ export interface EventListFilters {
 
 export type TicketStatus = "AVAILABLE" | "RESERVED" | "PAYING" | "SOLD";
 
+/**
+ * GET /events/{id}/tickets/available: a page of AVAILABLE tickets plus the event's largest ticket
+ * id (any status), used to pad ticket numbers to one width for the whole event.
+ */
+export interface AvailableTicketsPage extends PagedResponse<TicketResponse> {
+  maxTicketId: number | null;
+}
+
 export type TicketOperationType = "PURCHASE" | "PAYMENT_DECLINED" | "CANCEL" | "PAYMENT_ERROR";
 
 /**

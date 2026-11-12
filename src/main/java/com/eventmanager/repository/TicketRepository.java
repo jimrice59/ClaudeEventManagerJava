@@ -47,6 +47,10 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
            nativeQuery = true)
     Optional<Ticket> lockNextAvailableTicket(@Param("eventId") Long eventId);
 
+    /** Largest ticket id for an event, any status (null if it has none); see AvailableTicketsPage. */
+    @Query("SELECT MAX(t.id) FROM Ticket t WHERE t.event.id = :eventId")
+    Long findMaxIdByEventId(@Param("eventId") Long eventId);
+
     /** Live count of tickets in a given status for an event — backs EventService/TicketService#getNumAvailableTickets. */
     long countByEventIdAndStatus(Long eventId, TicketStatus status);
 

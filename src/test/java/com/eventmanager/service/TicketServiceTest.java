@@ -3,6 +3,7 @@ package com.eventmanager.service;
 import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
+import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.dto.TicketResponse;
@@ -205,12 +206,15 @@ class TicketServiceTest {
         when(ticketRepository.findByEventIdAndStatus(eq(1L), eq(TicketStatus.AVAILABLE), any(Pageable.class)))
                 .thenReturn(page);
 
-        PagedResponse<TicketResponse> result = ticketService.getAvailableTickets(1L, 0, 20);
+        when(ticketRepository.findMaxIdByEventId(1L)).thenReturn(60003L);
+
+        AvailableTicketsPage result = ticketService.getAvailableTickets(1L, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo(TicketStatus.AVAILABLE);
         assertThat(result.getTotalElements()).isEqualTo(1);
         assertThat(result.isLast()).isTrue();
+        assertThat(result.getMaxTicketId()).isEqualTo(60003L);
     }
 
     @Test
@@ -764,6 +768,7 @@ class TicketServiceTest {
         assertThat(created).allSatisfy(t -> {
             assertThat(t.getEvent()).isEqualTo(event);
             assertThat(t.getStatus()).isEqualTo(TicketStatus.AVAILABLE);
+            assertThat(t.getDescription()).isEqualTo("Open Seating");
             assertThat(t.getUserId()).isNull();
         });
     }

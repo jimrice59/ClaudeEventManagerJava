@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { PagedResponse, TicketResponse, TicketTransaction } from "../types";
+import type { AvailableTicketsPage, PagedResponse, TicketResponse, TicketTransaction } from "../types";
 
 export async function getTicket(id: number): Promise<TicketResponse> {
   const { data } = await apiClient.get<TicketResponse>(`/tickets/${id}`);
@@ -11,8 +11,8 @@ export async function getAvailableTickets(
   eventId: number,
   page = 0,
   size = 20,
-): Promise<PagedResponse<TicketResponse>> {
-  const { data } = await apiClient.get<PagedResponse<TicketResponse>>(
+): Promise<AvailableTicketsPage> {
+  const { data } = await apiClient.get<AvailableTicketsPage>(
     `/events/${eventId}/tickets/available`,
     { params: { page, size } },
   );

@@ -4,8 +4,9 @@ import * as eventsApi from "../api/events";
 import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { formatTicketId, ticketIdWidth } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
-import type { EventResponse, PagedResponse, TicketResponse } from "../types";
+import type { AvailableTicketsPage, EventResponse, TicketResponse } from "../types";
 
 const TICKETS_PAGE_SIZE = 10;
 
@@ -18,7 +19,7 @@ export function EventDetailPage() {
 
   const [event, setEvent] = useState<EventResponse | null>(null);
   const [numAvailable, setNumAvailable] = useState<number | null>(null);
-  const [availableTickets, setAvailableTickets] = useState<PagedResponse<TicketResponse> | null>(null);
+  const [availableTickets, setAvailableTickets] = useState<AvailableTicketsPage | null>(null);
   const [ticketsPage, setTicketsPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -96,6 +97,9 @@ export function EventDetailPage() {
     return runReservation(() => ticketsApi.reserveAvailableTicket(eventId));
   }
 
+  // One width for every ticket of this event, so the numbers line up across pages.
+  const idWidth = ticketIdWidth(availableTickets?.maxTicketId, event?.ticketsTotal ?? 0);
+
   if (loading) return <p>Loading...</p>;
   if (!event) return <ErrorBanner message={error ?? "Event not found."} />;
 
@@ -160,7 +164,10 @@ export function EventDetailPage() {
           <ul className="ticket-list">
             {availableTickets.content.map((ticket) => (
               <li key={ticket.id}>
-                <span>Ticket #{ticket.id}</span>
+                <span className="ticket-label">
+                  Ticket <span className="ticket-number">{formatTicketId(ticket.id, idWidth)}</span>
+                  {ticket.description && <span className="ticket-description"> {ticket.description}</span>}
+                </span>
                 {isAuthenticated ? (
                   <button onClick={() => handleReserve(ticket.id)} disabled={actionPending} className="button small">
                     Reserve

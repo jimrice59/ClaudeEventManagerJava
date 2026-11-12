@@ -3,6 +3,7 @@ package com.eventmanager.service;
 import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
+import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
@@ -75,6 +76,9 @@ public class TicketService {
     private final CacheManager cacheManager;
     private final TicketReservationProperties reservationProperties;
 
+    /** Description given to every ticket created for a new event (there are no seat assignments yet). */
+    public static final String DEFAULT_TICKET_DESCRIPTION = "Open Seating";
+
     /** Linear backoff unit between reserveAvailableTicket attempts: 50ms, 100ms, 150ms, ... */
     static final long RESERVE_RETRY_BACKOFF_MS = 50;
 
@@ -95,16 +99,18 @@ public class TicketService {
 
     /** Paginated list of AVAILABLE tickets for an event, ordered by ticket id. */
     @Transactional(readOnly = true)
-    public PagedResponse<TicketResponse> getAvailableTickets(Long eventId, int page, int size) {
+    public AvailableTicketsPage getAvailableTickets(Long eventId, int page, int size) {
         log.debug("Fetching available tickets for event id={}, page={}, size={}", eventId, page, size);
         if (!eventRepository.existsById(eventId)) {
             log.warn("Event not found with id={}", eventId);
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), Sort.by("id").ascending());
-        return PagedResponse.of(
-                ticketRepository.findByEventIdAndStatus(eventId, TicketStatus.AVAILABLE, pageable),
-                this::toResponse);
+        return AvailableTicketsPage.of(
+                PagedResponse.of(
+                        ticketRepository.findByEventIdAndStatus(eventId, TicketStatus.AVAILABLE, pageable),
+                        this::toResponse),
+                ticketRepository.findMaxIdByEventId(eventId));
     }
 
     /**
@@ -580,6 +586,7 @@ public class TicketService {
                 .mapToObj(i -> Ticket.builder()
                         .event(event)
                         .status(TicketStatus.AVAILABLE)
+                        .description(DEFAULT_TICKET_DESCRIPTION)
                         .userId(null)
                         .build())
                 .toList();

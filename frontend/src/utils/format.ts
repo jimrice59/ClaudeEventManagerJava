@@ -45,3 +45,17 @@ const moneyFormat = new Intl.NumberFormat(undefined, { style: "currency", curren
 export function formatMoney(amount: number): string {
   return moneyFormat.format(amount);
 }
+
+/**
+ * Digits needed so every ticket number for an event has the same width: enough for the event's
+ * largest ticket id (ids are global, not 1..N per event) and never fewer than its ticket count
+ * implies. E.g. 9000 tickets numbered 1-9000 → 4; 60000 tickets → 5; ids 60004-69003 → 5.
+ */
+export function ticketIdWidth(maxTicketId: number | null | undefined, ticketsTotal: number): number {
+  return String(Math.max(maxTicketId ?? 0, ticketsTotal, 1)).length;
+}
+
+/** Ticket id padded with leading zeroes to `width`, e.g. formatTicketId(6, 5) → "00006". */
+export function formatTicketId(id: number, width: number): string {
+  return String(id).padStart(width, "0");
+}
