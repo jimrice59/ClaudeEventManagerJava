@@ -47,25 +47,9 @@ export function formatMoney(amount: number): string {
 }
 
 /**
- * Digits needed so every ticket number for an event has the same width: enough for the event's
- * largest ticket id (ids are global, not 1..N per event) and never fewer than its ticket count
- * implies. E.g. 9000 tickets numbered 1-9000 → 4; 60000 tickets → 5; ids 60004-69003 → 5.
+ * "Ticket 00007 Open Seating": the ticket's description as written by the backend at creation
+ * (id zero-padded to its event's width, plus the seating), or "Ticket #7" if it has none.
  */
-export function ticketIdWidth(maxTicketId: number | null | undefined, ticketsTotal: number): number {
-  return String(Math.max(maxTicketId ?? 0, ticketsTotal, 1)).length;
-}
-
-/** Ticket id padded with leading zeroes to `width`, e.g. formatTicketId(6, 5) → "00006". */
-export function formatTicketId(id: number, width: number): string {
-  return String(id).padStart(width, "0");
-}
-
-/** Plain-text form of TicketLabel, for messages: "Ticket 00007 Open Seating". */
-export function ticketLabelText(id: number, width: number, description?: string | null): string {
-  return `Ticket ${formatTicketId(id, width)}${description ? ` ${description}` : ""}`;
-}
-
-/** Width for a ticket on a page that spans events, from that page's maxTicketIdByEvent map. */
-export function ticketIdWidthFor(maxTicketIdByEvent: Record<string, number> | undefined, eventId: number): number {
-  return ticketIdWidth(maxTicketIdByEvent?.[String(eventId)], 0);
+export function ticketLabelText(id: number, description?: string | null): string {
+  return description ? `Ticket ${description}` : `Ticket #${id}`;
 }

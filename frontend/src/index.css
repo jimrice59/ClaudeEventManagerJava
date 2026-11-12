@@ -707,14 +707,8 @@ button.small {
   }
 }
 
-/* Available-ticket labels: "Ticket 00006 Open Seating". Tabular figures keep the zero-padded
-   numbers the same visual width, so they line up down the list. */
-.ticket-number {
+/* Ticket labels: "Ticket 00006 Open Seating" (the description carries the padded number).
+   Tabular figures keep the zero-padded numbers the same visual width, so they line up. */
+.ticket-label {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--text-h);
-}
-
-.ticket-description {
-  color: var(--text-muted);
 }

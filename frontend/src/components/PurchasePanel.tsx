@@ -27,8 +27,6 @@ function newPaymentRequestId(): string {
 
 interface Props {
   ticket: TicketResponse;
-  /** Width to pad the ticket number to (its event's, see ticketIdWidth). */
-  idWidth: number;
   onDone: (result: PurchaseResult) => void;
   onCancel: () => void;
 }
@@ -39,7 +37,7 @@ interface Props {
  * request may or may not have reached the backend) is idempotent end to end — the backend and
  * the payment service see the same id rather than a fresh one per attempt.
  */
-export function PurchasePanel({ ticket, idWidth, onDone, onCancel }: Props) {
+export function PurchasePanel({ ticket, onDone, onCancel }: Props) {
   const [paymentRequestId] = useState(newPaymentRequestId);
   const [paymentToken, setPaymentToken] = useState("");
   const [price, setPrice] = useState<number | null>(null);
@@ -85,7 +83,7 @@ export function PurchasePanel({ ticket, idWidth, onDone, onCancel }: Props) {
       <div className="purchase-summary">
         <strong>Checkout</strong>
         <span>
-          <TicketLabel id={ticket.id} width={idWidth} description={ticket.description} /> &middot; {ticket.eventName}
+          <TicketLabel id={ticket.id} description={ticket.description} /> &middot; {ticket.eventName}
         </span>
         <span className="purchase-price">{price === null ? "Price unavailable" : `$${price.toFixed(2)}`}</span>
       </div>

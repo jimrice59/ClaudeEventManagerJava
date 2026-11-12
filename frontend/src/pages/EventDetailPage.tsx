@@ -5,9 +5,9 @@ import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { TicketLabel } from "../components/TicketLabel";
-import { ticketIdWidth, ticketLabelText } from "../utils/format";
+import { ticketLabelText } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
-import type { AvailableTicketsPage, EventResponse, TicketResponse } from "../types";
+import type { EventResponse, PagedResponse, TicketResponse } from "../types";
 
 const TICKETS_PAGE_SIZE = 10;
 
@@ -20,7 +20,7 @@ export function EventDetailPage() {
 
   const [event, setEvent] = useState<EventResponse | null>(null);
   const [numAvailable, setNumAvailable] = useState<number | null>(null);
-  const [availableTickets, setAvailableTickets] = useState<AvailableTicketsPage | null>(null);
+  const [availableTickets, setAvailableTickets] = useState<PagedResponse<TicketResponse> | null>(null);
   const [ticketsPage, setTicketsPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -75,7 +75,7 @@ export function EventDetailPage() {
     try {
       const ticket = await reserve();
       setSuccessMessage(
-        `${ticketLabelText(ticket.id, idWidth, ticket.description)} reserved! Find it under My Tickets to purchase or release it.`,
+        `${ticketLabelText(ticket.id, ticket.description)} reserved! Find it under My Tickets to purchase or release it.`,
       );
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -99,9 +99,6 @@ export function EventDetailPage() {
   function handleReserveAvailable() {
     return runReservation(() => ticketsApi.reserveAvailableTicket(eventId));
   }
-
-  // One width for every ticket of this event, so the numbers line up across pages.
-  const idWidth = ticketIdWidth(availableTickets?.maxTicketId, event?.ticketsTotal ?? 0);
 
   if (loading) return <p>Loading...</p>;
   if (!event) return <ErrorBanner message={error ?? "Event not found."} />;
@@ -167,7 +164,7 @@ export function EventDetailPage() {
           <ul className="ticket-list">
             {availableTickets.content.map((ticket) => (
               <li key={ticket.id}>
-                <TicketLabel id={ticket.id} width={idWidth} description={ticket.description} />
+                <TicketLabel id={ticket.id} description={ticket.description} />
                 {isAuthenticated ? (
                   <button onClick={() => handleReserve(ticket.id)} disabled={actionPending} className="button small">
                     Reserve

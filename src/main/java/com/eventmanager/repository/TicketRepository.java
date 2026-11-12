@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -47,13 +48,19 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
            nativeQuery = true)
     Optional<Ticket> lockNextAvailableTicket(@Param("eventId") Long eventId);
 
-    /** Largest ticket id for an event, any status (null if it has none); see AvailableTicketsPage. */
-    @Query("SELECT MAX(t.id) FROM Ticket t WHERE t.event.id = :eventId")
-    Long findMaxIdByEventId(@Param("eventId") Long eventId);
-
-    /** [eventId, max ticket id] for each given event; one grouped query for a whole page. */
-    @Query("SELECT t.event.id, MAX(t.id) FROM Ticket t WHERE t.event.id IN :eventIds GROUP BY t.event.id")
-    List<Object[]> findMaxIdsByEventIds(@Param("eventIds") java.util.Collection<Long> eventIds);
+    /**
+     * Writes "<id zero-padded to width><suffix>" (e.g. "00007 Open Seating") into the description of
+     * every ticket of an event, in one statement; used right after the event's tickets are inserted,
+     * once their database-generated ids exist. Flushes pending inserts first. Deliberately does not
+     * clear the persistence context (the caller still uses its managed Event afterwards); the
+     * in-memory Ticket objects keep a stale null description, which is never written back because
+     * dirty checking compares them against their own (also null) snapshot. LPAD/CAST/CONCAT work on
+     * both Postgres and H2.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE tickets SET description = CONCAT(LPAD(CAST(id AS VARCHAR(20)), :width, '0'), :suffix) " +
+                   "WHERE event_id = :eventId", nativeQuery = true)
+    int writeTicketDescriptions(@Param("eventId") Long eventId, @Param("width") int width, @Param("suffix") String suffix);
 
     /** Live count of tickets in a given status for an event — backs EventService/TicketService#getNumAvailableTickets. */
     long countByEventIdAndStatus(Long eventId, TicketStatus status);

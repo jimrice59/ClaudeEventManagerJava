@@ -3,9 +3,7 @@ package com.eventmanager.service;
 import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
-import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
-import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.PerformerSummary;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.NoTicketsAvailableException;
@@ -77,8 +75,11 @@ public class TicketService {
     private final CacheManager cacheManager;
     private final TicketReservationProperties reservationProperties;
 
-    /** Description given to every ticket created for a new event (there are no seat assignments yet). */
-    public static final String DEFAULT_TICKET_DESCRIPTION = "Open Seating";
+    /**
+     * Seating text in every new ticket's description, after the ticket's zero-padded id:
+     * "00007 Open Seating" (see createAvailableTickets). There are no seat assignments yet.
+     */
+    public static final String OPEN_SEATING = "Open Seating";
 
     /** Linear backoff unit between reserveAvailableTicket attempts: 50ms, 100ms, 150ms, ... */
     static final long RESERVE_RETRY_BACKOFF_MS = 50;
@@ -100,18 +101,16 @@ public class TicketService {
 
     /** Paginated list of AVAILABLE tickets for an event, ordered by ticket id. */
     @Transactional(readOnly = true)
-    public AvailableTicketsPage getAvailableTickets(Long eventId, int page, int size) {
+    public PagedResponse<TicketResponse> getAvailableTickets(Long eventId, int page, int size) {
         log.debug("Fetching available tickets for event id={}, page={}, size={}", eventId, page, size);
         if (!eventRepository.existsById(eventId)) {
             log.warn("Event not found with id={}", eventId);
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), Sort.by("id").ascending());
-        return AvailableTicketsPage.of(
-                PagedResponse.of(
-                        ticketRepository.findByEventIdAndStatus(eventId, TicketStatus.AVAILABLE, pageable),
-                        this::toResponse),
-                ticketRepository.findMaxIdByEventId(eventId));
+        return PagedResponse.of(
+                ticketRepository.findByEventIdAndStatus(eventId, TicketStatus.AVAILABLE, pageable),
+                this::toResponse);
     }
 
     /**
@@ -122,23 +121,9 @@ public class TicketService {
      * arbitrary user id" variant could be added later without disturbing this one.
      */
     @Transactional(readOnly = true)
-    public TicketListPage<TicketResponse> getMyTickets(int page, int size) {
+    public PagedResponse<TicketResponse> getMyTickets(int page, int size) {
         log.debug("Fetching tickets for current user, page={}, size={}", page, size);
-        PagedResponse<TicketResponse> tickets = getTicketsByUserId(currentUserId(), page, size);
-        return TicketListPage.of(tickets, maxTicketIdsByEvent(
-                tickets.getContent().stream().map(TicketResponse::getEventId).collect(Collectors.toSet())));
-    }
-
-    /**
-     * Event id -> that event's largest ticket id, for padding ticket numbers to the same per-event
-     * width the event page uses (see TicketListPage). One grouped query; empty input, no query.
-     */
-    private Map<Long, Long> maxTicketIdsByEvent(Set<Long> eventIds) {
-        if (eventIds.isEmpty()) {
-            return Map.of();
-        }
-        return ticketRepository.findMaxIdsByEventIds(eventIds).stream()
-                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+        return getTicketsByUserId(currentUserId(), page, size);
     }
 
     /**
@@ -154,7 +139,7 @@ public class TicketService {
      * read UTC wall-clock time as its local time (8 hours off in PST).
      */
     @Transactional(readOnly = true)
-    public TicketListPage<TicketTransactionResponse> getMyTransactions(int page, int size) {
+    public PagedResponse<TicketTransactionResponse> getMyTransactions(int page, int size) {
         Long userId = currentUserId();
         log.debug("Fetching transactions for user id={}, page={}, size={}", userId, page, size);
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size),
@@ -170,7 +155,7 @@ public class TicketService {
         ticketRepository.findAllById(operations.getContent().stream().map(TicketOperation::getTicketId).collect(Collectors.toSet()))
                 .forEach(t -> ticketDescriptions.put(t.getId(), t.getDescription()));
         ZoneId serverZone = ZoneId.systemDefault();
-        PagedResponse<TicketTransactionResponse> transactions = PagedResponse.of(operations, op -> TicketTransactionResponse.builder()
+        return PagedResponse.of(operations, op -> TicketTransactionResponse.builder()
                 .id(op.getId())
                 .ticketId(op.getTicketId())
                 .ticketDescription(ticketDescriptions.get(op.getTicketId()))
@@ -183,7 +168,6 @@ public class TicketService {
                 .paymentRequestId(op.getPaymentRequestId())
                 .operationDate(op.getOperationDate().atZone(serverZone).toOffsetDateTime())
                 .build());
-        return TicketListPage.of(transactions, maxTicketIdsByEvent(eventIds));
     }
 
     /** Internal: paginated list of tickets for a given user id, regardless of status. */
@@ -607,12 +591,27 @@ public class TicketService {
                 .mapToObj(i -> Ticket.builder()
                         .event(event)
                         .status(TicketStatus.AVAILABLE)
-                        .description(DEFAULT_TICKET_DESCRIPTION)
                         .userId(null)
                         .build())
                 .toList();
-        ticketRepository.saveAll(tickets);
-        log.info("Created {} AVAILABLE tickets for event id={}", count, event.getId());
+        // Ids are database-generated (IDENTITY), so they only exist after the insert; the
+        // descriptions, which embed the padded id, are then written by one bulk UPDATE.
+        List<Ticket> saved = ticketRepository.saveAll(tickets);
+        long maxId = saved.stream().mapToLong(t -> t.getId() == null ? 0 : t.getId()).max().orElse(0);
+        int width = ticketNumberWidth(maxId, count);
+        ticketRepository.writeTicketDescriptions(event.getId(), width, " " + OPEN_SEATING);
+        log.info("Created {} AVAILABLE tickets for event id={} (ticket numbers padded to {} digits)",
+                count, event.getId(), width);
+    }
+
+    /**
+     * Digits to pad an event's ticket numbers to: enough for its largest ticket id, so every ticket
+     * of the event gets the same width. Ticket ids are global, not 1..N per event, so the largest
+     * id (not the count) decides; e.g. 9000 tickets numbered 1-9000 → 4, 60000 tickets → 5, and a
+     * 12-ticket event with ids 60004-60015 → 5. The count is a floor for when ids are unknown.
+     */
+    static int ticketNumberWidth(long maxTicketId, int count) {
+        return String.valueOf(Math.max(1, Math.max(maxTicketId, count))).length();
     }
 
     /**

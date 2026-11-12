@@ -1,6 +1,5 @@
 package com.eventmanager.controller;
 
-import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.EventRequest;
 import com.eventmanager.dto.EventResponse;
 import com.eventmanager.dto.PagedResponse;
@@ -82,15 +81,13 @@ public class EventController {
 
     @Operation(summary = "List available tickets for an event",
                description = "Returns a paginated page of tickets with status AVAILABLE for the given event, " +
-                             "ordered by ticket id. Each ticket includes the venue and performers derived from the event. " +
-                             "maxTicketId is the event's largest ticket id (any status), for padding ticket numbers to a " +
-                             "uniform width; ticket ids are global, not 1..N per event.")
+                             "ordered by ticket id. Each ticket includes the venue and performers derived from the event.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page of available tickets (may be empty)"),
             @ApiResponse(responseCode = "404", description = "Event not found", content = @Content)
     })
     @GetMapping("/{id}/tickets/available")
-    public ResponseEntity<AvailableTicketsPage> getAvailableTickets(
+    public ResponseEntity<PagedResponse<TicketResponse>> getAvailableTickets(
             @Parameter(description = "Event ID") @PathVariable Long id,
             @Parameter(description = "Page number, 0-based") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size (1-100)") @RequestParam(defaultValue = "20") int size) {

@@ -5,13 +5,13 @@ import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { PurchasePanel, type PurchaseResult } from "../components/PurchasePanel";
 import { TicketLabel } from "../components/TicketLabel";
-import { ticketIdWidthFor, ticketLabelText } from "../utils/format";
-import type { TicketListPage, TicketResponse } from "../types";
+import { ticketLabelText } from "../utils/format";
+import type { PagedResponse, TicketResponse } from "../types";
 
 const PAGE_SIZE = 20;
 
 export function MyTicketsPage() {
-  const [tickets, setTickets] = useState<TicketListPage<TicketResponse> | null>(null);
+  const [tickets, setTickets] = useState<PagedResponse<TicketResponse> | null>(null);
   const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,11 +43,7 @@ export function MyTicketsPage() {
     switch (result.kind) {
       case "approved":
         setSuccessMessage(
-          `Payment approved — ${ticketLabelText(
-            result.ticket.id,
-            ticketIdWidthFor(tickets?.maxTicketIdByEvent, result.ticket.eventId),
-            result.ticket.description,
-          )} for ${result.ticket.eventName} is yours.`,
+          `Payment approved — ${ticketLabelText(result.ticket.id, result.ticket.description)} for ${result.ticket.eventName} is yours.`,
         );
         break;
       case "declined":
@@ -121,11 +117,7 @@ export function MyTicketsPage() {
               <li key={ticket.id}>
                 <div>
                   <div>
-                    <TicketLabel
-                      id={ticket.id}
-                      width={ticketIdWidthFor(tickets.maxTicketIdByEvent, ticket.eventId)}
-                      description={ticket.description}
-                    />
+                    <TicketLabel id={ticket.id} description={ticket.description} />
                   </div>
                   <Link to={`/events/${ticket.eventId}`}>{ticket.eventName}</Link>
                   <div className="muted small">
@@ -164,7 +156,6 @@ export function MyTicketsPage() {
                 {purchasingId === ticket.id && (
                   <PurchasePanel
                     ticket={ticket}
-                    idWidth={ticketIdWidthFor(tickets.maxTicketIdByEvent, ticket.eventId)}
                     onDone={handlePurchaseDone}
                     onCancel={() => setPurchasingId(null)}
                   />

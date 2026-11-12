@@ -3,9 +3,7 @@ package com.eventmanager.service;
 import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.TicketCassandraRepository;
-import com.eventmanager.dto.AvailableTicketsPage;
 import com.eventmanager.dto.PagedResponse;
-import com.eventmanager.dto.TicketListPage;
 import com.eventmanager.dto.TicketTransactionResponse;
 import com.eventmanager.dto.TicketResponse;
 import com.eventmanager.exception.NoTicketsAvailableException;
@@ -207,15 +205,12 @@ class TicketServiceTest {
         when(ticketRepository.findByEventIdAndStatus(eq(1L), eq(TicketStatus.AVAILABLE), any(Pageable.class)))
                 .thenReturn(page);
 
-        when(ticketRepository.findMaxIdByEventId(1L)).thenReturn(60003L);
-
-        AvailableTicketsPage result = ticketService.getAvailableTickets(1L, 0, 20);
+        PagedResponse<TicketResponse> result = ticketService.getAvailableTickets(1L, 0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getStatus()).isEqualTo(TicketStatus.AVAILABLE);
         assertThat(result.getTotalElements()).isEqualTo(1);
         assertThat(result.isLast()).isTrue();
-        assertThat(result.getMaxTicketId()).isEqualTo(60003L);
     }
 
     @Test
@@ -249,15 +244,11 @@ class TicketServiceTest {
         authenticateAs("alice");
         Page<Ticket> page = new PageImpl<>(List.of(ticket));
         when(ticketRepository.findByUserId(eq(42L), any(Pageable.class))).thenReturn(page);
-        when(ticketRepository.findMaxIdsByEventIds(Set.of(1L))).thenReturn(List.<Object[]>of(new Object[]{1L, 60003L}));
-
-        TicketListPage<TicketResponse> result = ticketService.getMyTickets(0, 20);
+        PagedResponse<TicketResponse> result = ticketService.getMyTickets(0, 20);
 
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).getEventName()).isEqualTo("Summer Rock Festival");
         assertThat(result.getTotalElements()).isEqualTo(1);
-        // Each listed event's largest ticket id, for padding ticket numbers like the event page does.
-        assertThat(result.getMaxTicketIdByEvent()).containsExactly(java.util.Map.entry(1L, 60003L));
     }
 
     @Test
@@ -310,17 +301,15 @@ class TicketServiceTest {
         when(ticketOperationRepository.findByUserId(eq(42L), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(purchase)));
         when(eventRepository.findAllById(any())).thenReturn(List.of(event));
-        ticket.setDescription("Open Seating");
+        ticket.setDescription("00001 Open Seating");
         when(ticketRepository.findAllById(Set.of(1L))).thenReturn(List.of(ticket));
-        when(ticketRepository.findMaxIdsByEventIds(Set.of(1L))).thenReturn(List.<Object[]>of(new Object[]{1L, 60003L}));
         authenticateAs("alice");
 
-        TicketListPage<TicketTransactionResponse> page = ticketService.getMyTransactions(0, 20);
+        PagedResponse<TicketTransactionResponse> page = ticketService.getMyTransactions(0, 20);
 
         TicketTransactionResponse t = page.getContent().get(0);
         assertThat(t.getId()).isEqualTo(10L);
-        assertThat(t.getTicketDescription()).isEqualTo("Open Seating");
-        assertThat(page.getMaxTicketIdByEvent()).containsExactly(java.util.Map.entry(1L, 60003L));
+        assertThat(t.getTicketDescription()).isEqualTo("00001 Open Seating");
         assertThat(t.getEventName()).isEqualTo("Summer Rock Festival");
         assertThat(t.getOperation()).isEqualTo(TicketOperationType.PURCHASE);
         assertThat(t.getPaymentConfirmationDetails()).isEqualTo("SIMULATED-abc");
@@ -768,6 +757,12 @@ class TicketServiceTest {
     @Test
     void createAvailableTickets_createsOneAvailableTicketPerUnitOfCapacity() {
         ArgumentCaptor<List<Ticket>> captor = ArgumentCaptor.forClass(List.class);
+        // The database assigns ids on insert; simulate ids continuing from earlier events.
+        when(ticketRepository.saveAll(any())).thenAnswer(inv -> {
+            List<Ticket> in = inv.getArgument(0);
+            for (int i = 0; i < in.size(); i++) in.get(i).setId(60004L + i);
+            return in;
+        });
 
         ticketService.createAvailableTickets(event, 3);
 
@@ -777,9 +772,19 @@ class TicketServiceTest {
         assertThat(created).allSatisfy(t -> {
             assertThat(t.getEvent()).isEqualTo(event);
             assertThat(t.getStatus()).isEqualTo(TicketStatus.AVAILABLE);
-            assertThat(t.getDescription()).isEqualTo("Open Seating");
             assertThat(t.getUserId()).isNull();
         });
+        // Descriptions are written after the insert, padded to the largest new id (60006 → 5 digits).
+        verify(ticketRepository).writeTicketDescriptions(1L, 5, " Open Seating");
+    }
+
+    @Test
+    void ticketNumberWidth_isTheDigitCountOfTheEventsLargestTicketId() {
+        assertThat(TicketService.ticketNumberWidth(9000, 9000)).isEqualTo(4);
+        assertThat(TicketService.ticketNumberWidth(60000, 60000)).isEqualTo(5);
+        // Ids are global: a 12-ticket event created after others still needs 5 digits.
+        assertThat(TicketService.ticketNumberWidth(60015, 12)).isEqualTo(5);
+        assertThat(TicketService.ticketNumberWidth(0, 3)).isEqualTo(1);
     }
 
     // --- backupAndDeleteAllForEvent ---

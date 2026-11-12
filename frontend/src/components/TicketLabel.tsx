@@ -1,15 +1,11 @@
-import { formatTicketId } from "../utils/format";
+import { ticketLabelText } from "../utils/format";
 
 /**
- * "Ticket 00007 Open Seating": the ticket id zero-padded to its event's width (see ticketIdWidth),
- * in tabular figures so numbers line up, followed by the description when there is one. Used on
- * the event page, My Tickets, and My Transactions so a ticket reads the same everywhere.
+ * "Ticket 00007 Open Seating": the ticket's description, which the backend writes at creation as
+ * the id zero-padded to its event's width plus the seating ("00007 Open Seating"), so no
+ * formatting happens here. Falls back to "Ticket #7" for a ticket with no description. Used on the
+ * event page, My Tickets (including the checkout panel), and My Transactions.
  */
-export function TicketLabel({ id, width, description }: { id: number; width: number; description?: string | null }) {
-  return (
-    <span className="ticket-label">
-      Ticket <span className="ticket-number">{formatTicketId(id, width)}</span>
-      {description && <span className="ticket-description"> {description}</span>}
-    </span>
-  );
+export function TicketLabel({ id, description }: { id: number; description?: string | null }) {
+  return <span className="ticket-label">{ticketLabelText(id, description)}</span>;
 }
