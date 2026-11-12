@@ -26,6 +26,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      # Fail fast when Redis is down: Lettuce's default command timeout is 60s, which stalled every
+      # Redis caller (reservations, rate limiter, cache) for a minute per request during an outage.
+      timeout: ${REDIS_TIMEOUT:2s}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:2s}
 
   cassandra:
     contact-points: ${CASSANDRA_HOST:localhost}
@@ -72,6 +76,8 @@ edge-metrics:
 # retries a truly sold-out event; 0 disables. See TicketReservationProperties.
 ticket-reservation:
   max-retries: ${TICKET_RESERVATION_MAX_RETRIES:3}
+  # How long a reservation (a Redis hold) lasts before it expires and the ticket is available again.
+  hold-ttl: ${TICKET_RESERVATION_HOLD_TTL:10m}
 
 # gRPC client config for the external payment service called synchronously from
 # TicketService.purchaseTicket — see docs/payment-service-integration.md.

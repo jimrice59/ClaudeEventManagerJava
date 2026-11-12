@@ -119,6 +119,8 @@ export interface TicketResponse {
   userId: number | null;
   paymentRequestId: string | null;
   datePurchased: string | null;
+  /** While RESERVED: when the reservation (a Redis hold) expires and the ticket is available again. */
+  holdExpiresAt?: string | null;
 }
 
 export interface PurchaseTicketRequest {

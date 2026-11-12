@@ -40,11 +40,11 @@ stack.
   Ownership is always derived from the caller's JWT, never accepted from the client. A ticket can
   be reserved by id, or the caller can ask for "the next available ticket" for an event and let the
   server choose one.
-- **Ticket changes are safe under concurrency.** Every status transition locks the ticket's row
-  while it checks and updates it, so when several requests race for the same ticket, exactly one
-  wins. Before this, simultaneous purchases of one ticket could all succeed, charging the buyer
-  more than once. "Reserve the next available" uses `SKIP LOCKED`, so simultaneous callers get
-  different tickets instead of colliding.
+- **Reservations are short-lived holds in Redis.** Reserving a ticket places a hold that expires
+  on its own after 10 minutes (configurable); Postgres isn't written until someone pays. Redis
+  decides who wins each ticket atomically, so of several simultaneous reserves exactly one succeeds,
+  and "reserve the next available" spreads concurrent callers across different tickets. The
+  purchase itself still locks the ticket's row, so simultaneous purchases can't charge twice.
 - **Event browsing** filters by venue, performer, and date range in any combination.
 - **Purchasing a ticket is a saga, not a single write.** `purchaseTicket` moves the ticket to
   `PAYING`, calls an external payment service over gRPC (deadline 120s) with no database

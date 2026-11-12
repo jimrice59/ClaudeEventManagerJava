@@ -63,7 +63,7 @@ Public `GET` endpoints (read operations on events, venues, performers) send no `
 | `getAvailableTickets(eventId, page, size)` | GET | `/api/v1/events/{id}/tickets/available?page=&size=` | public |
 | `getMyTickets(page, size)` | GET | `/api/v1/tickets/me?page=&size=` | authenticated |
 | `getMyTransactions(page, size)` | GET | `/api/v1/tickets/me/transactions?page=&size=` | authenticated — `PagedResponse<TicketTransactionResponse>` (both copies; the `client/` module has its own `TicketTransactionResponse`/`TicketOperationType`, with `operationDate` as `OffsetDateTime`) |
-| `reserveTicket(id)` | POST | `/api/v1/tickets/{id}/reserve` | authenticated |
+| `reserveTicket(id)` | POST | `/api/v1/tickets/{id}/reserve` | authenticated — places a Redis hold that expires on its own; `TicketResponse.holdExpiresAt` says when (both client copies have the field) |
 | `reserveAvailableTicket(eventId)` | POST | `/api/v1/events/{id}/tickets/reserve` | authenticated — the server picks the ticket; 409 (`HttpClientErrorException.Conflict`) if none is available |
 | `releaseTicket(id)` | POST | `/api/v1/tickets/{id}/release` | authenticated |
 | `purchaseTicket(id, paymentToken, paymentRequestId)` | POST | `/api/v1/tickets/{id}/purchase` | authenticated |

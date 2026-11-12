@@ -115,6 +115,8 @@ services:
       # approved, never charged) by default. Override with PAYMENT_SERVICE_ENABLED=true plus
       # PAYMENT_SERVICE_HOST/PORT to call a real one. See payment-service-grpc.md.
       PAYMENT_SERVICE_ENABLED: ${PAYMENT_SERVICE_ENABLED:-false}
+      # How long a ticket reservation (a Redis hold) lasts before it expires on its own.
+      TICKET_RESERVATION_HOLD_TTL: ${TICKET_RESERVATION_HOLD_TTL:-10m}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.event-manager.rule=Host(`localhost`)"

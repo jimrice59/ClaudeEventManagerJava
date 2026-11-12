@@ -157,6 +157,9 @@ public class TicketGrpcServiceImpl extends TicketGrpcServiceGrpc.TicketGrpcServi
         if (ticket.getDatePurchased() != null) {
             builder.setDatePurchased(ticket.getDatePurchased().toString());
         }
+        if (ticket.getHoldExpiresAt() != null) {
+            builder.setHoldExpiresAt(ticket.getHoldExpiresAt().toString());
+        }
         return builder.build();
     }
 

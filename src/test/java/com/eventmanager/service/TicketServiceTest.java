@@ -33,7 +33,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -91,7 +90,7 @@ class TicketServiceTest {
     private PlatformTransactionManager transactionManager;
 
     @Mock
-    private CacheManager cacheManager;
+    private TicketHoldService holdService;
 
     private TicketService ticketService;
 
@@ -103,11 +102,14 @@ class TicketServiceTest {
 
     private final TicketReservationProperties reservationProperties = new TicketReservationProperties();
 
+    /** Expiry used for stubbed holds. */
+    private static final java.time.Instant HOLD_EXPIRY = java.time.Instant.parse("2026-11-12T19:10:00Z");
+
     @BeforeEach
     void setUp() {
         ticketService = new TicketService(ticketRepository, eventRepository, userRepository,
                 ticketOperationRepository, cassandraAsyncWriter, paymentServiceClient, paymentCacheService,
-                transactionManager, cacheManager, reservationProperties);
+                transactionManager, reservationProperties, holdService);
         // TicketCassandraRepository is field-injected (@Autowired(required = false)), matching
         // the optional-infrastructure-bean pattern documented for CassandraAsyncWriter — tests
         // that exercise the "Cassandra present" path inject it explicitly via ReflectionTestUtils.
@@ -178,7 +180,7 @@ class TicketServiceTest {
     @Test
     void getNumAvailableTickets_returnsCountFromRepository() {
         when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(37L);
+        when(ticketRepository.countAvailableExcluding(eq(1L), any())).thenReturn(37L);
 
         long result = ticketService.getNumAvailableTickets(1L);
 
@@ -202,7 +204,7 @@ class TicketServiceTest {
     void getAvailableTickets_returnsPagedResponse() {
         when(eventRepository.existsById(1L)).thenReturn(true);
         Page<Ticket> page = new PageImpl<>(List.of(ticket));
-        when(ticketRepository.findByEventIdAndStatus(eq(1L), eq(TicketStatus.AVAILABLE), any(Pageable.class)))
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
                 .thenReturn(page);
 
         PagedResponse<TicketResponse> result = ticketService.getAvailableTickets(1L, 0, 20);
@@ -227,12 +229,12 @@ class TicketServiceTest {
     @Test
     void getAvailableTickets_clampsOversizedPageSize() {
         when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.findByEventIdAndStatus(eq(1L), eq(TicketStatus.AVAILABLE), any(Pageable.class)))
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
         ticketService.getAvailableTickets(1L, 0, 5000);
 
-        verify(ticketRepository).findByEventIdAndStatus(eq(1L), eq(TicketStatus.AVAILABLE),
+        verify(ticketRepository).findAvailableExcluding(eq(1L), any(),
                 argThat(pageable -> pageable.getPageSize() == 100));
     }
 
@@ -243,7 +245,7 @@ class TicketServiceTest {
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
         Page<Ticket> page = new PageImpl<>(List.of(ticket));
-        when(ticketRepository.findByUserId(eq(42L), any(Pageable.class))).thenReturn(page);
+        when(ticketRepository.findOwnedOrHeld(eq(42L), any(), any(Pageable.class))).thenReturn(page);
         PagedResponse<TicketResponse> result = ticketService.getMyTickets(0, 20);
 
         assertThat(result.getContent()).hasSize(1);
@@ -255,11 +257,11 @@ class TicketServiceTest {
     void getMyTickets_clampsOversizedPageSize() {
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
-        when(ticketRepository.findByUserId(eq(42L), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(ticketRepository.findOwnedOrHeld(eq(42L), any(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
         ticketService.getMyTickets(0, 5000);
 
-        verify(ticketRepository).findByUserId(eq(42L), argThat(pageable -> pageable.getPageSize() == 100));
+        verify(ticketRepository).findOwnedOrHeld(eq(42L), any(), argThat(pageable -> pageable.getPageSize() == 100));
     }
 
     @Test
@@ -272,21 +274,6 @@ class TicketServiceTest {
                 .hasMessageContaining("User")
                 .hasMessageContaining("ghost");
         verify(ticketRepository, never()).findByUserId(any(), any());
-    }
-
-    // --- reserveTicket ---
-
-    @Test
-    void reserveTicket_succeedsAndStampsCallersUserId() {
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
-        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
-        authenticateAs("alice");
-
-        TicketResponse result = ticketService.reserveTicket(1L);
-
-        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
-        assertThat(result.getUserId()).isEqualTo(42L);
     }
 
     @Test
@@ -335,189 +322,11 @@ class TicketServiceTest {
         assertThat(pageable.getValue().getPageSize()).isEqualTo(100);
     }
 
-    @Test
-    void reserveAvailableTicket_reservesTheLockedTicketForTheCaller() {
-        when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.of(ticket));
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
-        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
-        authenticateAs("alice");
-
-        TicketResponse result = ticketService.reserveAvailableTicket(1L);
-
-        assertThat(result.getId()).isEqualTo(1L);
-        assertThat(result.getEventId()).isEqualTo(1L);
-        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
-        assertThat(result.getUserId()).isEqualTo(42L);
-    }
-
-    @Test
-    void reserveAvailableTicket_failsImmediatelyWithoutRetryWhenSoldOut() {
-        when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
-        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(0L);
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
-                .isInstanceOf(NoTicketsAvailableException.class)
-                .hasMessageContaining("event 1");
-        // Zero AVAILABLE means truly sold out — no point retrying, even with retries configured.
-        verify(ticketRepository, times(1)).lockNextAvailableTicket(1L);
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void reserveAvailableTicket_retriesWhenAllAvailableTicketsAreLockedThenSucceeds() {
-        when(eventRepository.existsById(1L)).thenReturn(true);
-        // First attempt: SKIP LOCKED finds nothing although a ticket is AVAILABLE (it's locked by
-        // an in-flight transaction that then rolls back); second attempt gets it.
-        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty(), Optional.of(ticket));
-        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(1L);
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
-        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
-        authenticateAs("alice");
-
-        TicketResponse result = ticketService.reserveAvailableTicket(1L);
-
-        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
-        assertThat(result.getUserId()).isEqualTo(42L);
-        verify(ticketRepository, times(2)).lockNextAvailableTicket(1L);
-    }
-
-    @Test
-    void reserveAvailableTicket_givesUpAfterMaxRetriesWhileTicketsStayLocked() {
-        reservationProperties.setMaxRetries(2);
-        when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
-        when(ticketRepository.countByEventIdAndStatus(1L, TicketStatus.AVAILABLE)).thenReturn(5L);
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
-                .isInstanceOf(NoTicketsAvailableException.class);
-        // 1 initial attempt + 2 retries; the client sees the same 409 as before.
-        verify(ticketRepository, times(3)).lockNextAvailableTicket(1L);
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void reserveAvailableTicket_zeroMaxRetriesMakesExactlyOneAttempt() {
-        reservationProperties.setMaxRetries(0);
-        when(eventRepository.existsById(1L)).thenReturn(true);
-        when(ticketRepository.lockNextAvailableTicket(1L)).thenReturn(Optional.empty());
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
-                .isInstanceOf(NoTicketsAvailableException.class);
-        verify(ticketRepository, times(1)).lockNextAvailableTicket(1L);
-        // Retries exhausted is checked first, so the extra count query is skipped.
-        verify(ticketRepository, never()).countByEventIdAndStatus(any(), any());
-    }
-
-    @Test
-    void reserveAvailableTicket_throwsNotFoundWhenEventMissing() {
-        when(eventRepository.existsById(99L)).thenReturn(false);
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(99L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Event");
-        verify(ticketRepository, never()).lockNextAvailableTicket(any());
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void reserveTicket_throwsWhenNotCurrentlyAvailable() {
-        ticket.setStatus(TicketStatus.SOLD);
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("AVAILABLE");
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void reserveTicket_throwsWhenNotFound() {
-        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
-        authenticateAs("alice");
-
-        assertThatThrownBy(() -> ticketService.reserveTicket(99L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Ticket");
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void reserveTicket_throwsWhenAuthenticatedUsernameHasNoMatchingUserRow() {
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
-        authenticateAs("ghost");
-
-        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("User");
-        verify(ticketRepository, never()).save(any());
-    }
-
-    // --- releaseTicket ---
-
-    @Test
-    void releaseTicket_succeedsAndClearsUserIdWhenReservedBySameUser() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L);
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
-        when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
-        authenticateAs("alice");
-
-        TicketResponse result = ticketService.releaseTicket(1L);
-
-        assertThat(result.getStatus()).isEqualTo(TicketStatus.AVAILABLE);
-        assertThat(result.getUserId()).isNull();
-    }
-
-    @Test
-    void releaseTicket_throwsWhenNotCurrentlyReserved() {
-        // ticket is AVAILABLE (never reserved); the status check happens before any JWT lookup
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-
-        assertThatThrownBy(() -> ticketService.releaseTicket(1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("RESERVED");
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void releaseTicket_throwsAccessDeniedWhenReservedByDifferentUser() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L); // reserved by alice
-        when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
-        User bob = User.builder().id(99L).username("bob").build();
-        when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
-        authenticateAs("bob");
-
-        assertThatThrownBy(() -> ticketService.releaseTicket(1L))
-                .isInstanceOf(AccessDeniedException.class);
-        verify(ticketRepository, never()).save(any());
-    }
-
-    @Test
-    void releaseTicket_throwsWhenNotFound() {
-        when(ticketRepository.findByIdForUpdate(99L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> ticketService.releaseTicket(99L))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("Ticket");
-        verify(ticketRepository, never()).save(any());
-    }
-
     // --- purchaseTicket ---
 
     @Test
     void purchaseTicket_succeedsWhenReservedBySameUserAndPaymentApproved() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L);
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY)));
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -554,12 +363,13 @@ class TicketServiceTest {
         verify(cassandraAsyncWriter).saveTicketOperation(any(CassandraTicketOperation.class));
         verify(paymentCacheService).cachePaymentRequest(any(), eq(1L));
         verify(paymentCacheService).cacheIdempotencyToken(any(), eq("idem-9000"));
+        // The hold is deleted after RESERVED→PAYING commits.
+        verify(holdService).release(1L, 1L, 42L);
     }
 
     @Test
     void purchaseTicket_usesClientSuppliedPaymentRequestId() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L);
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY)));
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -576,8 +386,7 @@ class TicketServiceTest {
 
     @Test
     void purchaseTicket_movesBackToAvailableWhenPaymentDeclined() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L);
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY)));
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -599,8 +408,7 @@ class TicketServiceTest {
 
     @Test
     void purchaseTicket_throwsPaymentServiceUnavailableAndLeavesTicketPayingWhenCallFails() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L);
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY)));
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -636,22 +444,21 @@ class TicketServiceTest {
 
     @Test
     void purchaseTicket_throwsWhenNotCurrentlyReserved() {
-        // ticket is AVAILABLE (never reserved)
+        // ticket is AVAILABLE with no hold (never reserved, or the hold expired)
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
         authenticateAs("alice");
 
         assertThatThrownBy(() -> ticketService.purchaseTicket(1L, "pm_tok_abc123", null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("RESERVED");
+                .hasMessageContaining("isn't reserved");
         verify(ticketRepository, never()).save(any());
         verify(ticketOperationRepository, never()).save(any());
     }
 
     @Test
     void purchaseTicket_throwsAccessDeniedWhenReservedByDifferentUser() {
-        ticket.setStatus(TicketStatus.RESERVED);
-        ticket.setUserId(42L); // reserved by alice
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY))); // alice's hold
         when(ticketRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ticket));
         User bob = User.builder().id(99L).username("bob").build();
         when(userRepository.findByUsername("bob")).thenReturn(Optional.of(bob));
@@ -674,6 +481,276 @@ class TicketServiceTest {
                 .hasMessageContaining("Ticket");
         verify(ticketRepository, never()).save(any());
         verify(ticketOperationRepository, never()).save(any());
+    }
+
+    // --- getTicketById with holds ---
+
+    @Test
+    void getTicketById_checksRedisFirstAndReportsReservedWhileHeld() {
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(42L, HOLD_EXPIRY)));
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket)); // AVAILABLE in Postgres
+
+        TicketResponse result = ticketService.getTicketById(1L);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
+        assertThat(result.getUserId()).isEqualTo(42L);
+        assertThat(result.getHoldExpiresAt()).isEqualTo(HOLD_EXPIRY.atOffset(java.time.ZoneOffset.UTC));
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(holdService, ticketRepository);
+        order.verify(holdService).getHold(1L);
+        order.verify(ticketRepository).findByIdWithDetails(1L);
+    }
+
+    @Test
+    void getTicketById_ignoresALeftoverHoldOnceTheTicketIsNoLongerAvailable() {
+        ticket.setStatus(TicketStatus.PAYING);
+        ticket.setUserId(42L);
+        when(holdService.getHold(1L)).thenReturn(Optional.of(new TicketHoldService.Hold(7L, HOLD_EXPIRY)));
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+
+        TicketResponse result = ticketService.getTicketById(1L);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.PAYING);
+        assertThat(result.getUserId()).isEqualTo(42L);
+        assertThat(result.getHoldExpiresAt()).isNull();
+    }
+
+    // --- reserveTicket (a Redis hold; Postgres untouched) ---
+
+    @Test
+    void reserveTicket_placesAHoldForTheCallerWithoutWritingPostgres() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.of(HOLD_EXPIRY));
+        when(ticketRepository.findStatusById(1L)).thenReturn(Optional.of(TicketStatus.AVAILABLE));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.reserveTicket(1L);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
+        assertThat(result.getUserId()).isEqualTo(42L);
+        assertThat(result.getHoldExpiresAt()).isEqualTo(HOLD_EXPIRY.atOffset(java.time.ZoneOffset.UTC));
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void reserveTicket_failsWhenSomeoneElseAlreadyHoldsIt() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("RESERVED");
+    }
+
+    @Test
+    void reserveTicket_throwsWhenNotCurrentlyAvailable() {
+        ticket.setStatus(TicketStatus.SOLD);
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("AVAILABLE");
+        verifyNoInteractions(holdService);
+    }
+
+    @Test
+    void reserveTicket_givesTheHoldBackIfThePurchaseOfAnExpiringHoldJustWon() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.of(HOLD_EXPIRY));
+        when(ticketRepository.findStatusById(1L)).thenReturn(Optional.of(TicketStatus.PAYING));
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("PAYING");
+        verify(holdService).release(1L, 1L, 42L);
+    }
+
+    @Test
+    void reserveTicket_throwsWhenNotFound() {
+        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.reserveTicket(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Ticket");
+        verifyNoInteractions(holdService);
+    }
+
+    @Test
+    void reserveTicket_throwsWhenAuthenticatedUsernameHasNoMatchingUserRow() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+        authenticateAs("ghost");
+
+        assertThatThrownBy(() -> ticketService.reserveTicket(1L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User");
+        verifyNoInteractions(holdService);
+    }
+
+    // --- reserveAvailableTicket (lowest-id unheld ticket; SET NX decides) ---
+
+    private Ticket availableTicket(long id) {
+        return Ticket.builder().id(id).event(event).status(TicketStatus.AVAILABLE).build();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void reserveAvailableTicket_holdsTheLowestUnheldTicketForTheCaller() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.heldTicketIds(1L)).thenReturn(Set.of(7L));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.of(HOLD_EXPIRY));
+        when(ticketRepository.findStatusById(1L)).thenReturn(Optional.of(TicketStatus.AVAILABLE));
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.reserveAvailableTicket(1L);
+
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.RESERVED);
+        assertThat(result.getUserId()).isEqualTo(42L);
+        // Tickets already held (7) are excluded from the candidates.
+        ArgumentCaptor<java.util.Collection<Long>> excluded = ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(ticketRepository).findAvailableExcluding(eq(1L), excluded.capture(), any(Pageable.class));
+        assertThat(excluded.getValue()).containsExactly(7L);
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void reserveAvailableTicket_movesOnWhenSomeoneElseJustHeldACandidate() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(availableTicket(1L), availableTicket(2L))));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.empty());
+        when(holdService.tryHold(1L, 2L, 42L)).thenReturn(Optional.of(HOLD_EXPIRY));
+        when(ticketRepository.findStatusById(2L)).thenReturn(Optional.of(TicketStatus.AVAILABLE));
+        authenticateAs("alice");
+
+        assertThat(ticketService.reserveAvailableTicket(1L).getId()).isEqualTo(2L);
+    }
+
+    @Test
+    void reserveAvailableTicket_failsImmediatelyWhenNoUnheldTicketIsAvailable() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class))).thenReturn(Page.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class);
+        // Sold out, or everything left is held: holds expire in minutes, so no point retrying now.
+        verify(ticketRepository, times(1)).findAvailableExcluding(eq(1L), any(), any(Pageable.class));
+        verify(holdService, never()).tryHold(any(), any(), any());
+    }
+
+    @Test
+    void reserveAvailableTicket_retriesWhenEveryCandidateWasJustGrabbedThenSucceeds() {
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.empty(), Optional.of(HOLD_EXPIRY));
+        when(ticketRepository.findStatusById(1L)).thenReturn(Optional.of(TicketStatus.AVAILABLE));
+        authenticateAs("alice");
+
+        assertThat(ticketService.reserveAvailableTicket(1L).getStatus()).isEqualTo(TicketStatus.RESERVED);
+        verify(ticketRepository, times(2)).findAvailableExcluding(eq(1L), any(), any(Pageable.class));
+    }
+
+    @Test
+    void reserveAvailableTicket_givesUpAfterMaxRetries() {
+        reservationProperties.setMaxRetries(2);
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class);
+        verify(holdService, times(3)).tryHold(1L, 1L, 42L); // 1 attempt + 2 retries
+    }
+
+    @Test
+    void reserveAvailableTicket_zeroMaxRetriesMakesExactlyOneAttempt() {
+        reservationProperties.setMaxRetries(0);
+        when(eventRepository.existsById(1L)).thenReturn(true);
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(ticketRepository.findAvailableExcluding(eq(1L), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(ticket)));
+        when(holdService.tryHold(1L, 1L, 42L)).thenReturn(Optional.empty());
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(1L))
+                .isInstanceOf(NoTicketsAvailableException.class);
+        verify(holdService, times(1)).tryHold(1L, 1L, 42L);
+    }
+
+    @Test
+    void reserveAvailableTicket_throwsNotFoundWhenEventMissing() {
+        when(eventRepository.existsById(99L)).thenReturn(false);
+
+        assertThatThrownBy(() -> ticketService.reserveAvailableTicket(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Event");
+        verifyNoInteractions(holdService);
+    }
+
+    // --- releaseTicket (deletes the caller's hold) ---
+
+    @Test
+    void releaseTicket_deletesTheCallersHold() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.release(1L, 1L, 42L)).thenReturn(TicketHoldService.ReleaseResult.RELEASED);
+        authenticateAs("alice");
+
+        TicketResponse result = ticketService.releaseTicket(1L);
+
+        assertThat(result.getStatus()).isEqualTo(TicketStatus.AVAILABLE);
+        assertThat(result.getUserId()).isNull();
+        assertThat(result.getHoldExpiresAt()).isNull();
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    void releaseTicket_throwsAccessDeniedWhenHeldByAnotherUser() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.release(1L, 1L, 42L)).thenReturn(TicketHoldService.ReleaseResult.HELD_BY_OTHER);
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.releaseTicket(1L)).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void releaseTicket_throwsWhenNotHeldOrTheHoldExpired() {
+        when(ticketRepository.findByIdWithDetails(1L)).thenReturn(Optional.of(ticket));
+        when(userRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+        when(holdService.release(1L, 1L, 42L)).thenReturn(TicketHoldService.ReleaseResult.NOT_HELD);
+        authenticateAs("alice");
+
+        assertThatThrownBy(() -> ticketService.releaseTicket(1L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not RESERVED");
+    }
+
+    @Test
+    void releaseTicket_throwsWhenNotFound() {
+        when(ticketRepository.findByIdWithDetails(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ticketService.releaseTicket(99L))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verifyNoInteractions(holdService);
     }
 
     // --- cancelTicket ---
@@ -776,6 +853,13 @@ class TicketServiceTest {
         });
         // Descriptions are written after the insert, padded to the largest new id (60006 → 5 digits).
         verify(ticketRepository).writeTicketDescriptions(1L, 5, " Open Seating");
+    }
+
+    @Test
+    void describe_showsSecondsForHoldsShorterThanAMinute() {
+        assertThat(TicketService.describe(java.time.Duration.ofMinutes(10))).isEqualTo("10 minutes");
+        assertThat(TicketService.describe(java.time.Duration.ofMinutes(1))).isEqualTo("1 minute");
+        assertThat(TicketService.describe(java.time.Duration.ofSeconds(20))).isEqualTo("20 seconds");
     }
 
     @Test

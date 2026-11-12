@@ -5,7 +5,7 @@ import * as ticketsApi from "../api/tickets";
 import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { TicketLabel } from "../components/TicketLabel";
-import { ticketLabelText } from "../utils/format";
+import { formatTime, ticketLabelText } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
 import type { EventResponse, PagedResponse, TicketResponse } from "../types";
 
@@ -75,7 +75,9 @@ export function EventDetailPage() {
     try {
       const ticket = await reserve();
       setSuccessMessage(
-        `${ticketLabelText(ticket.id, ticket.description)} reserved! Find it under My Tickets to purchase or release it.`,
+        `${ticketLabelText(ticket.id, ticket.description)} reserved` +
+          (ticket.holdExpiresAt ? ` until ${formatTime(ticket.holdExpiresAt)}` : "") +
+          `! Find it under My Tickets to purchase or release it before then.`,
       );
     } catch (err) {
       setError(extractErrorMessage(err));

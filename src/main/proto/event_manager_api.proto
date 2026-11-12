@@ -156,6 +156,7 @@ message TicketMessage {
   optional int64 user_id = 10;
   optional string payment_request_id = 11;
   optional string date_purchased = 12;  // set only once a purchase has been APPROVED; never cleared by cancellation
+  optional string hold_expires_at = 13; // while RESERVED: when the reservation (a Redis hold) expires, ISO-8601 UTC
 }
 
 // Mirrors TicketTransactionResponse; the idempotency token is deliberately never exposed.

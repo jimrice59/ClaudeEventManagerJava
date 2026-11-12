@@ -74,6 +74,8 @@ delete-RPC responses. Each `*GrpcService` generates an `ImplBase` to extend and 
   `DateTimeParseException`/`NumberFormatException`→`INVALID_ARGUMENT` (malformed `event_date`/
   `ticket_price` strings — see event_manager_api.proto), `IllegalArgumentException` (every
   ticket-status-machine violation — see ticket-status-state-machine.md)→`FAILED_PRECONDITION`,
+  `ReservationsUnavailableException`→`UNAVAILABLE` (Redis, the hold store, unreachable — see
+  reservation-holds.md),
   `TicketPaymentInProgressException`→`FAILED_PRECONDITION` (409-equivalent),
   `PaymentServiceUnavailableException`→`UNAVAILABLE` (502-equivalent),
   `GrpcUnauthenticatedException`→`UNAUTHENTICATED`, anything else→`INTERNAL`. The gRPC-transport
@@ -156,3 +158,5 @@ admin-only RPC (`CreateVenue`, `DeletePerformer`) while the same call with a `RO
 `PERMISSION_DENIED` and with no token gets `UNAUTHENTICATED`; a deliberately-blank required field
 on a `CreateVenueRequest` mapping to `INVALID_ARGUMENT` via `GrpcValidationSupport`; and a thrown
 `TicketPaymentInProgressException` arriving at the client as `FAILED_PRECONDITION`.
+
+`TicketMessage` has `optional string hold_expires_at = 13`: while a ticket is `RESERVED` (a Redis hold, see reservation-holds.md), when the hold expires, as ISO-8601 UTC.

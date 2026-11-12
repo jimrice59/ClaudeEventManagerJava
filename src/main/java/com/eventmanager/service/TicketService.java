@@ -27,10 +27,6 @@ import com.eventmanager.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.Cache;
-import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,7 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -72,8 +70,8 @@ public class TicketService {
     private final PaymentServiceClient paymentServiceClient;
     private final PaymentCacheService paymentCacheService;
     private final PlatformTransactionManager transactionManager;
-    private final CacheManager cacheManager;
     private final TicketReservationProperties reservationProperties;
+    private final TicketHoldService holdService;
 
     /**
      * Seating text in every new ticket's description, after the ticket's zero-padded id:
@@ -92,11 +90,16 @@ public class TicketService {
     @Autowired(required = false)
     private TicketCassandraRepository ticketCassandraRepository;
 
-    @Cacheable(value = "tickets", key = "#id")
+    /**
+     * Checks Redis for a live hold first, then reads the ticket from Postgres: while held, the
+     * ticket reports RESERVED with the holder and holdExpiresAt, though Postgres still has it
+     * AVAILABLE. Not cached: a cached "reserved" answer would outlive the hold's expiry.
+     */
     @Transactional(readOnly = true)
     public TicketResponse getTicketById(Long id) {
         log.debug("Fetching ticket with id={}", id);
-        return toResponse(findTicketOrThrow(id));
+        Optional<TicketHoldService.Hold> hold = holdService.getHold(id);
+        return toResponse(findTicketOrThrow(id), hold.orElse(null));
     }
 
     /** Paginated list of AVAILABLE tickets for an event, ordered by ticket id. */
@@ -108,8 +111,9 @@ public class TicketService {
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), Sort.by("id").ascending());
+        // Available to reserve = AVAILABLE in Postgres and not currently held in Redis.
         return PagedResponse.of(
-                ticketRepository.findByEventIdAndStatus(eventId, TicketStatus.AVAILABLE, pageable),
+                ticketRepository.findAvailableExcluding(eventId, nonEmpty(holdService.heldTicketIds(eventId)), pageable),
                 this::toResponse);
     }
 
@@ -173,7 +177,10 @@ public class TicketService {
     /** Internal: paginated list of tickets for a given user id, regardless of status. */
     private PagedResponse<TicketResponse> getTicketsByUserId(Long userId, int page, int size) {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size), Sort.by("id").ascending());
-        return PagedResponse.of(ticketRepository.findByUserId(userId, pageable), this::toResponse);
+        // Owned in Postgres (PAYING/SOLD) plus held in Redis (still AVAILABLE, ownerless, in Postgres).
+        Page<Ticket> tickets = ticketRepository.findOwnedOrHeld(userId, nonEmpty(holdService.heldTicketIdsForUser(userId)), pageable);
+        Map<Long, TicketHoldService.Hold> holds = holdService.getHolds(tickets.getContent().stream().map(Ticket::getId).toList());
+        return PagedResponse.of(tickets, t -> toResponse(t, holds.get(t.getId())));
     }
 
     /**
@@ -193,7 +200,12 @@ public class TicketService {
             log.warn("Event not found with id={}", eventId);
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
-        return ticketRepository.countByEventIdAndStatus(eventId, TicketStatus.AVAILABLE);
+        return ticketRepository.countAvailableExcluding(eventId, nonEmpty(holdService.heldTicketIds(eventId)));
+    }
+
+    /** NOT IN / IN with an empty list is unsafe in JPQL; a sentinel that matches no ticket is not. */
+    private static Collection<Long> nonEmpty(Set<Long> ids) {
+        return ids.isEmpty() ? List.of(-1L) : ids;
     }
 
     /**
@@ -202,63 +214,88 @@ public class TicketService {
      * (from the JWT, never client-supplied) and moves it to RESERVED. Same validation this
      * transition has always had.
      */
-    @CachePut(value = "tickets", key = "#id")
-    @Transactional
+    @Transactional(readOnly = true)
     public TicketResponse reserveTicket(Long id) {
         log.info("Reserving ticket id={}", id);
-        Ticket ticket = lockTicketOrThrow(id);
-        reserve(ticket);
-        ticket.setStatus(TicketStatus.RESERVED);
-        TicketResponse saved = toResponse(ticketRepository.save(ticket));
-        log.info("Reserved ticket id={} for user id={}", saved.getId(), saved.getUserId());
-        return saved;
+        Ticket ticket = findTicketOrThrow(id);
+        Long userId = currentUserId();
+        requireAvailable(ticket, "reserve");
+        Instant expiresAt = holdService.tryHold(ticket.getEvent().getId(), id, userId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Cannot reserve ticket " + id + ": current status is RESERVED, not AVAILABLE"));
+        confirmStillAvailableOrRelease(ticket, userId);
+        log.info("Reserved ticket id={} for user id={} until {}", id, userId, expiresAt);
+        return toResponse(ticket, new TicketHoldService.Hold(userId, expiresAt));
+    }
+
+    /**
+     * After a hold is won, re-reads the ticket's committed status: a purchase that had consumed an
+     * expiring hold may have just moved it to PAYING. If it's no longer AVAILABLE, gives the hold back.
+     */
+    private void confirmStillAvailableOrRelease(Ticket ticket, Long userId) {
+        TicketStatus now = ticketRepository.findStatusById(ticket.getId()).orElse(null);
+        if (now != TicketStatus.AVAILABLE) {
+            holdService.release(ticket.getEvent().getId(), ticket.getId(), userId);
+            throw new IllegalArgumentException(
+                    "Cannot reserve ticket " + ticket.getId() + ": current status is " + now + ", not AVAILABLE");
+        }
+    }
+
+    /** "10 minutes", "1 minute", or "20 seconds" for holds shorter than a minute. */
+    static String describe(java.time.Duration d) {
+        long minutes = d.toMinutes();
+        if (minutes >= 1) {
+            return minutes + (minutes == 1 ? " minute" : " minutes");
+        }
+        long seconds = Math.max(1, d.toSeconds());
+        return seconds + (seconds == 1 ? " second" : " seconds");
+    }
+
+    private static void requireAvailable(Ticket ticket, String action) {
+        if (ticket.getStatus() != TicketStatus.AVAILABLE) {
+            throw new IllegalArgumentException("Cannot " + action + " ticket " + ticket.getId()
+                    + ": current status is " + ticket.getStatus() + ", not AVAILABLE");
+        }
     }
 
     /**
      * Reserves the next available ticket for an event on behalf of the authenticated caller, for
      * callers who want "a ticket to this event" rather than a specific one. Same end state as
-     * {@link #reserveTicket}: status RESERVED, {@code userId} stamped from the JWT.
+     * {@link #reserveTicket}: a Redis hold for the caller that expires on its own after
+     * {@code ticket-reservation.hold-ttl}.
      * <p>
-     * Each attempt picks a ticket with {@link TicketRepository#lockNextAvailableTicket} ({@code FOR
-     * UPDATE SKIP LOCKED}), so concurrent calls reserve different tickets — an attempt can never
-     * lose "its" ticket to another client, because it holds the row lock until commit. What
-     * <em>can</em> happen is that every remaining AVAILABLE ticket is momentarily locked by other
-     * in-flight transactions, so SKIP LOCKED finds nothing although the event isn't sold out; if
-     * one of those transactions then rolls back, its ticket is still AVAILABLE. That's the only
-     * case this retries: when an attempt finds nothing but AVAILABLE tickets still exist, it backs
-     * off ({@link #RESERVE_RETRY_BACKOFF_MS} × attempt) and tries again, up to
-     * {@code ticket-reservation.max-retries} times. A truly sold-out event (zero AVAILABLE) fails
-     * immediately with no retry.
-     * <p>
-     * Each attempt is its own short transaction (TransactionTemplate, as in the purchase saga),
-     * so no connection is held while backing off. Unchanged for clients: same endpoint and
-     * responses — 404 if the event doesn't exist, 409 ({@link NoTicketsAvailableException}) if no
-     * ticket could be reserved — just up to sum-of-backoffs extra latency (300ms at the default 3
-     * retries) in the contended case. The cache key is the chosen ticket's id, only known from
-     * the result — hence {@code #result.id}.
+     * Each attempt takes the lowest-id tickets that are AVAILABLE in Postgres and not already held,
+     * and tries to hold them in turn; Redis's SET NX decides each one, so concurrent callers never
+     * win the same ticket. If every candidate was grabbed by someone else in the meantime, it backs
+     * off ({@link #RESERVE_RETRY_BACKOFF_MS} × attempt) and retries with a fresh candidate list, up to
+     * {@code ticket-reservation.max-retries} times. When there's no unheld AVAILABLE ticket at all
+     * (sold out, or everything left is held), it fails immediately with 409
+     * ({@link NoTicketsAvailableException}); holds expire within minutes, so retrying for that isn't
+     * worth it. Each attempt runs in its own short read-only transaction, so no connection is held
+     * while backing off.
      */
-    @CachePut(value = "tickets", key = "#result.id")
     public TicketResponse reserveAvailableTicket(Long eventId) {
         log.info("Reserving next available ticket for event id={}", eventId);
         if (!eventRepository.existsById(eventId)) {
             throw new ResourceNotFoundException("Event", "id", eventId);
         }
+        Long userId = currentUserId();
         int maxRetries = reservationProperties.getMaxRetries();
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
+        txTemplate.setReadOnly(true);
         for (int attempt = 0; ; attempt++) {
-            Optional<TicketResponse> reserved = txTemplate.execute(status -> tryReserveNextAvailable(eventId));
-            if (reserved != null && reserved.isPresent()) {
-                TicketResponse saved = reserved.get();
+            Attempt result = txTemplate.execute(status -> tryHoldNextAvailable(eventId, userId));
+            if (result != null && result.reserved() != null) {
                 log.info("Reserved ticket id={} (next available for event id={}, attempt {}) for user id={}",
-                        saved.getId(), eventId, attempt + 1, saved.getUserId());
-                return saved;
+                        result.reserved().getId(), eventId, attempt + 1, userId);
+                return result.reserved();
             }
-            if (attempt >= maxRetries
-                    || ticketRepository.countByEventIdAndStatus(eventId, TicketStatus.AVAILABLE) == 0) {
+            if (result == null || !result.hadCandidates() || attempt >= maxRetries) {
+                // No unheld AVAILABLE ticket at all (sold out, or everything left is held), or retries exhausted.
                 throw new NoTicketsAvailableException(eventId);
             }
             long backoffMs = RESERVE_RETRY_BACKOFF_MS * (attempt + 1);
-            log.info("All AVAILABLE tickets for event id={} are locked by in-flight reservations; "
+            log.info("Every candidate ticket for event id={} was just held by someone else; "
                     + "retrying in {}ms (retry {}/{})", eventId, backoffMs, attempt + 1, maxRetries);
             try {
                 Thread.sleep(backoffMs);
@@ -269,13 +306,32 @@ public class TicketService {
         }
     }
 
-    /** One reserveAvailableTicket attempt, run inside its own transaction; empty if nothing was lockable. */
-    private Optional<TicketResponse> tryReserveNextAvailable(Long eventId) {
-        return ticketRepository.lockNextAvailableTicket(eventId).map(ticket -> {
-            reserve(ticket);
-            ticket.setStatus(TicketStatus.RESERVED);
-            return toResponse(ticketRepository.save(ticket));
-        });
+    /** How many unheld AVAILABLE tickets one reserveAvailableTicket attempt tries to hold, lowest id first. */
+    static final int RESERVE_CANDIDATES = 20;
+
+    private record Attempt(TicketResponse reserved, boolean hadCandidates) {
+    }
+
+    /**
+     * One attempt: fetch the lowest-id AVAILABLE tickets that aren't held, then try to hold each in
+     * turn (SET NX in Redis is the arbiter, so concurrent callers can't both win one). Losing all of
+     * them means other callers grabbed them in the meantime, which is worth a retry.
+     */
+    private Attempt tryHoldNextAvailable(Long eventId, Long userId) {
+        List<Ticket> candidates = ticketRepository.findAvailableExcluding(eventId,
+                nonEmpty(holdService.heldTicketIds(eventId)), PageRequest.of(0, RESERVE_CANDIDATES, Sort.by("id"))).getContent();
+        for (Ticket ticket : candidates) {
+            Optional<Instant> expiresAt = holdService.tryHold(eventId, ticket.getId(), userId);
+            if (expiresAt.isPresent()) {
+                try {
+                    confirmStillAvailableOrRelease(ticket, userId);
+                } catch (IllegalArgumentException stale) {
+                    continue;
+                }
+                return new Attempt(toResponse(ticket, new TicketHoldService.Hold(userId, expiresAt.get())), true);
+            }
+        }
+        return new Attempt(null, !candidates.isEmpty());
     }
 
     /**
@@ -308,7 +364,9 @@ public class TicketService {
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
 
         PendingPayment pending = txTemplate.execute(status -> beginPayment(id, userId, clientPaymentRequestId));
-        evictTicketCache(id);
+        // The ticket is PAYING in Postgres now, so the hold has done its job. Deleted only after
+        // that commit, so nobody else could grab the ticket in between.
+        holdService.release(pending.eventId(), id, userId);
 
         // Cached before the call goes out (not after) so the mapping is resolvable even if this
         // application crashes mid-call — see PaymentCacheService#cachePaymentRequest.
@@ -319,10 +377,7 @@ public class TicketService {
                 pending.paymentRequestId(), userId, paymentToken, id, pending.purchasePrice());
         paymentCacheService.cacheIdempotencyToken(pending.paymentRequestId(), outcome.idempotencyToken());
 
-        TicketResponse response = txTemplate.execute(
-                status -> completePayment(id, userId, pending.paymentRequestId(), outcome));
-        evictTicketCache(id);
-        return response;
+        return txTemplate.execute(status -> completePayment(id, userId, pending.paymentRequestId(), outcome));
     }
 
     /**
@@ -342,7 +397,14 @@ public class TicketService {
         if (ticket.getStatus() == TicketStatus.PAYING) {
             throw new TicketPaymentInProgressException(id);
         }
-        sell(ticket, userId);
+        requireAvailable(ticket, "sell");
+        TicketHoldService.Hold hold = holdService.getHold(id).orElseThrow(() -> new IllegalArgumentException(
+                "Cannot sell ticket " + id + ": it isn't reserved (reservations expire after "
+                        + describe(reservationProperties.getHoldTtl()) + "; reserve it again)"));
+        if (!userId.equals(hold.userId())) {
+            throw new AccessDeniedException("Ticket " + id + " is reserved by a different user");
+        }
+        ticket.setUserId(userId);
         String paymentRequestId = (clientPaymentRequestId != null && !clientPaymentRequestId.isBlank())
                 ? clientPaymentRequestId
                 : UUID.randomUUID().toString();
@@ -350,7 +412,7 @@ public class TicketService {
         ticket.setPaymentRequestId(paymentRequestId);
         Ticket saved = ticketRepository.save(ticket);
         log.info("Ticket id={} moved to PAYING for user id={}, paymentRequestId={}", id, userId, paymentRequestId);
-        return new PendingPayment(paymentRequestId, saved.getEvent().getTicketPrice());
+        return new PendingPayment(paymentRequestId, saved.getEvent().getTicketPrice(), saved.getEvent().getId());
     }
 
     /**
@@ -392,14 +454,7 @@ public class TicketService {
     }
 
     /** Data carried from {@link #beginPayment} to the payment-service call and on to {@link #completePayment}. */
-    private record PendingPayment(String paymentRequestId, BigDecimal purchasePrice) {
-    }
-
-    private void evictTicketCache(Long id) {
-        Cache cache = cacheManager.getCache("tickets");
-        if (cache != null) {
-            cache.evict(id);
-        }
+    private record PendingPayment(String paymentRequestId, BigDecimal purchasePrice, Long eventId) {
     }
 
     /**
@@ -409,7 +464,6 @@ public class TicketService {
      * cancel their own purchase. Moves the ticket back to AVAILABLE and clears its owner
      * (the same as {@link #releaseTicket}), and records a CANCEL {@link TicketOperation}.
      */
-    @CachePut(value = "tickets", key = "#id")
     @Transactional
     public TicketResponse cancelTicket(Long id) {
         log.info("Cancelling ticket id={}", id);
@@ -431,37 +485,18 @@ public class TicketService {
      * who reserved it may release it. {@code userId} is cleared back to {@code null}, matching
      * the invariant that every AVAILABLE ticket has no owner.
      */
-    @CachePut(value = "tickets", key = "#id")
-    @Transactional
+    @Transactional(readOnly = true)
     public TicketResponse releaseTicket(Long id) {
         log.info("Releasing ticket id={}", id);
-        Ticket ticket = lockTicketOrThrow(id);
-        release(ticket);
-        ticket.setStatus(TicketStatus.AVAILABLE);
-        ticket.setUserId(null);
-        TicketResponse saved = toResponse(ticketRepository.save(ticket));
-        log.info("Released ticket id={}", saved.getId());
-        return saved;
-    }
-
-    private void reserve(Ticket ticket) {
-        if (ticket.getStatus() != TicketStatus.AVAILABLE) {
-            throw new IllegalArgumentException(
-                    "Cannot reserve ticket " + ticket.getId() + ": current status is "
-                            + ticket.getStatus() + ", not AVAILABLE");
+        Ticket ticket = findTicketOrThrow(id);
+        Long userId = currentUserId();
+        switch (holdService.release(ticket.getEvent().getId(), id, userId)) {
+            case RELEASED -> log.info("Released ticket id={}", id);
+            case HELD_BY_OTHER -> throw new AccessDeniedException("Ticket " + id + " was reserved by a different user");
+            case NOT_HELD -> throw new IllegalArgumentException("Cannot release ticket " + id + ": current status is "
+                    + ticket.getStatus() + ", not RESERVED (it isn't reserved, or the reservation expired)");
         }
-        ticket.setUserId(currentUserId());
-    }
-
-    private void sell(Ticket ticket, Long userId) {
-        if (ticket.getStatus() != TicketStatus.RESERVED) {
-            throw new IllegalArgumentException(
-                    "Cannot sell ticket " + ticket.getId() + ": current status is "
-                            + ticket.getStatus() + ", not RESERVED");
-        }
-        if (!userId.equals(ticket.getUserId())) {
-            throw new AccessDeniedException("Ticket " + ticket.getId() + " was reserved by a different user");
-        }
+        return toResponse(ticket, null);
     }
 
     private void cancel(Ticket ticket, Long userId) {
@@ -472,17 +507,6 @@ public class TicketService {
         }
         if (!userId.equals(ticket.getUserId())) {
             throw new AccessDeniedException("Ticket " + ticket.getId() + " was purchased by a different user");
-        }
-    }
-
-    private void release(Ticket ticket) {
-        if (ticket.getStatus() != TicketStatus.RESERVED) {
-            throw new IllegalArgumentException(
-                    "Cannot release ticket " + ticket.getId() + ": current status is "
-                            + ticket.getStatus() + ", not RESERVED");
-        }
-        if (!currentUserId().equals(ticket.getUserId())) {
-            throw new AccessDeniedException("Ticket " + ticket.getId() + " was reserved by a different user");
         }
     }
 
@@ -628,7 +652,6 @@ public class TicketService {
      * deliberately left in place as an archive, exactly like a deleted event's own last-synced
      * Cassandra copy.
      */
-    @CacheEvict(value = "tickets", allEntries = true)
     @Transactional
     public void backupAndDeleteAllForEvent(Long eventId) {
         List<Ticket> tickets = ticketRepository.findByEventId(eventId);
@@ -666,6 +689,15 @@ public class TicketService {
     }
 
     private TicketResponse toResponse(Ticket ticket) {
+        return toResponse(ticket, null);
+    }
+
+    /**
+     * A held ticket is still AVAILABLE in Postgres; while the hold lasts it's reported as RESERVED,
+     * owned by the holder, with holdExpiresAt.
+     */
+    private TicketResponse toResponse(Ticket ticket, TicketHoldService.Hold hold) {
+        boolean held = hold != null && ticket.getStatus() == TicketStatus.AVAILABLE;
         Event event = ticket.getEvent();
         return TicketResponse.builder()
                 .id(ticket.getId())
@@ -678,10 +710,11 @@ public class TicketService {
                 .performers(event.getPerformers().stream()
                         .map(p -> new PerformerSummary(p.getId(), p.getName()))
                         .collect(Collectors.toSet()))
-                .status(ticket.getStatus())
-                .userId(ticket.getUserId())
+                .status(held ? TicketStatus.RESERVED : ticket.getStatus())
+                .userId(held ? hold.userId() : ticket.getUserId())
                 .paymentRequestId(ticket.getPaymentRequestId())
                 .datePurchased(ticket.getDatePurchased())
+                .holdExpiresAt(held ? hold.expiresAt().atOffset(java.time.ZoneOffset.UTC) : null)
                 .build();
     }
 }

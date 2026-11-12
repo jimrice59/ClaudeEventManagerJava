@@ -1,11 +1,14 @@
 package com.eventmanager.service;
 
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
+
+import java.time.Duration;
 
 /**
  * Bound from {@code ticket-reservation.*} in application.yml.
@@ -25,4 +28,11 @@ public class TicketReservationProperties {
 
     @Min(0)
     private int maxRetries = 3;
+
+    /**
+     * How long a reservation (a Redis hold, see TicketHoldService) lasts before it expires on its
+     * own and the ticket becomes available again ({@code TICKET_RESERVATION_HOLD_TTL}, default 10m).
+     */
+    @NotNull
+    private Duration holdTtl = Duration.ofMinutes(10);
 }

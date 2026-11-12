@@ -49,6 +49,9 @@ final class GrpcExceptionMapper {
             case TicketPaymentInProgressException ex -> Status.FAILED_PRECONDITION.withDescription(ex.getMessage());
             // 409-equivalent: the event has no AVAILABLE ticket left to reserve.
             case NoTicketsAvailableException ex -> Status.FAILED_PRECONDITION.withDescription(ex.getMessage());
+            // 503-equivalent: the hold store (Redis) is unreachable; reservations fail closed.
+            case com.eventmanager.exception.ReservationsUnavailableException ex ->
+                    Status.UNAVAILABLE.withDescription(ex.getMessage());
             // 502-equivalent: the payment-service call itself failed; the ticket is left PAYING.
             case PaymentServiceUnavailableException ex -> Status.UNAVAILABLE.withDescription(ex.getMessage());
             // 400-equivalent: every other ticket-status-machine validation failure (wrong status

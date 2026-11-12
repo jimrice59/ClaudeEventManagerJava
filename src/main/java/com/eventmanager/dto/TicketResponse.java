@@ -58,4 +58,8 @@ public class TicketResponse implements Serializable {
     @Schema(description = "When the most recent approved purchase of this ticket completed; "
             + "null if it has never been sold. Not cleared on cancellation.")
     private LocalDateTime datePurchased;
+
+    @Schema(description = "While the ticket is reserved (status RESERVED): when the reservation expires and "
+            + "the ticket becomes available again. Null otherwise.", example = "2026-11-12T19:10:00Z")
+    private java.time.OffsetDateTime holdExpiresAt;
 }

@@ -53,3 +53,10 @@ export function formatMoney(amount: number): string {
 export function ticketLabelText(id: number, description?: string | null): string {
   return description ? `Ticket ${description}` : `Ticket #${id}`;
 }
+
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+/** e.g. "2:49 PM", in the viewer's locale and time zone. */
+export function formatTime(iso: string): string {
+  return timeFormat.format(new Date(iso));
+}

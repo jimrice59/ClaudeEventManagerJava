@@ -58,7 +58,7 @@ since self-invocation bypasses the Spring AOP proxy the annotation relies on, th
 `@Async` requires a different bean (see above). See payment-service-grpc.md and
 docs/payment-service-integration.md, "Why two transactions instead of one".
 
-**Row locks in ticket transitions:** every `TicketService` status transition loads its ticket with
+**Row locks in ticket transitions:** the Postgres transitions (the purchase saga and cancel; reserving and releasing are Redis holds, see reservation-holds.md) load the ticket with
 `SELECT ... FOR UPDATE` (`TicketRepository.findByIdForUpdate`), so the lock lives exactly as long as
 that method's transaction (or, in the purchase saga, each of its two `TransactionTemplate` steps).
 Locking is pessimistic because `Ticket` has no `@Version` column, and adding one to an existing

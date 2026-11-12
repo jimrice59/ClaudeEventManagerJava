@@ -5,7 +5,7 @@ import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { PurchasePanel, type PurchaseResult } from "../components/PurchasePanel";
 import { TicketLabel } from "../components/TicketLabel";
-import { ticketLabelText } from "../utils/format";
+import { formatRelative, formatTime, ticketLabelText } from "../utils/format";
 import type { PagedResponse, TicketResponse } from "../types";
 
 const PAGE_SIZE = 20;
@@ -124,7 +124,14 @@ export function MyTicketsPage() {
                     {new Date(ticket.eventDate).toLocaleString()} &middot; {ticket.venueName}
                   </div>
                 </div>
-                <span className={`badge status-${ticket.status.toLowerCase()}`}>{ticket.status}</span>
+                <div className="status-cell">
+                  <span className={`badge status-${ticket.status.toLowerCase()}`}>{ticket.status}</span>
+                  {ticket.status === "RESERVED" && ticket.holdExpiresAt && (
+                    <div className="muted small">
+                      Held until {formatTime(ticket.holdExpiresAt)} ({formatRelative(ticket.holdExpiresAt)})
+                    </div>
+                  )}
+                </div>
                 <div className="button-row">
                   {ticket.status === "RESERVED" && (
                     <>

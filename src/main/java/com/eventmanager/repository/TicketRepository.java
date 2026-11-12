@@ -36,17 +36,35 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     List<Ticket> findByEventId(Long eventId);
 
     /**
-     * Picks and row-locks the lowest-id AVAILABLE ticket for an event, for
-     * TicketService#reserveAvailableTicket. Must run inside a transaction: the lock is held until
-     * commit. SKIP LOCKED makes concurrent callers each skip rows another transaction has already
-     * locked, rather than all blocking on (and then fighting over) the same lowest-id ticket — so
-     * N simultaneous requests reserve N different tickets. Empty when none are available.
-     * Native because JPQL has no SKIP LOCKED; Postgres-specific (not exercised under H2).
+     * An event's AVAILABLE tickets excluding the given (currently held) ids, by ticket id. "Available
+     * to reserve" = AVAILABLE in Postgres and not held in Redis (see TicketHoldService). Callers pass
+     * a sentinel {-1} rather than an empty collection, so NOT IN never gets an empty list.
      */
-    @Query(value = "SELECT * FROM tickets WHERE event_id = :eventId AND status = 'AVAILABLE' " +
-                   "ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED",
-           nativeQuery = true)
-    Optional<Ticket> lockNextAvailableTicket(@Param("eventId") Long eventId);
+    @Query(value = "SELECT t FROM Ticket t JOIN FETCH t.event e JOIN FETCH e.venue " +
+                   "WHERE e.id = :eventId AND t.status = com.eventmanager.model.TicketStatus.AVAILABLE AND t.id NOT IN :heldIds",
+           countQuery = "SELECT COUNT(t) FROM Ticket t WHERE t.event.id = :eventId " +
+                        "AND t.status = com.eventmanager.model.TicketStatus.AVAILABLE AND t.id NOT IN :heldIds")
+    Page<Ticket> findAvailableExcluding(@Param("eventId") Long eventId,
+                                        @Param("heldIds") java.util.Collection<Long> heldIds,
+                                        Pageable pageable);
+
+    @Query("SELECT COUNT(t) FROM Ticket t WHERE t.event.id = :eventId " +
+           "AND t.status = com.eventmanager.model.TicketStatus.AVAILABLE AND t.id NOT IN :heldIds")
+    long countAvailableExcluding(@Param("eventId") Long eventId, @Param("heldIds") java.util.Collection<Long> heldIds);
+
+    /**
+     * A user's tickets: the ones Postgres records as theirs (PAYING/SOLD) plus the ones they hold in
+     * Redis (which Postgres still has as AVAILABLE, with no owner). Same sentinel convention.
+     */
+    @Query(value = "SELECT t FROM Ticket t JOIN FETCH t.event e JOIN FETCH e.venue WHERE t.userId = :userId OR t.id IN :heldIds",
+           countQuery = "SELECT COUNT(t) FROM Ticket t WHERE t.userId = :userId OR t.id IN :heldIds")
+    Page<Ticket> findOwnedOrHeld(@Param("userId") Long userId,
+                                 @Param("heldIds") java.util.Collection<Long> heldIds,
+                                 Pageable pageable);
+
+    /** Current committed status, read straight from the database (bypasses the persistence context). */
+    @Query("SELECT t.status FROM Ticket t WHERE t.id = :id")
+    Optional<TicketStatus> findStatusById(@Param("id") Long id);
 
     /**
      * Writes "<id zero-padded to width><suffix>" (e.g. "00007 Open Seating") into the description of

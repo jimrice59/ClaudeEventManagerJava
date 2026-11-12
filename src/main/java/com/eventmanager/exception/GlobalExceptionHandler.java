@@ -43,6 +43,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(HttpStatus.CONFLICT.value(), ex.getMessage()));
     }
 
+    /** The hold store (Redis) is unreachable: reservations fail closed. See ReservationsUnavailableException. */
+    @ExceptionHandler(ReservationsUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleReservationsUnavailable(ReservationsUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse(HttpStatus.SERVICE_UNAVAILABLE.value(), ex.getMessage()));
+    }
+
     @ExceptionHandler(PaymentServiceUnavailableException.class)
     public ResponseEntity<ErrorResponse> handlePaymentServiceUnavailable(PaymentServiceUnavailableException ex) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)

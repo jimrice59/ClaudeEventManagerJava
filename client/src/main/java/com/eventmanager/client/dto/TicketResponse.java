@@ -28,4 +28,6 @@ public class TicketResponse {
     private String paymentRequestId;
     /** When the most recent approved sale happened; null if never sold. Not cleared on cancellation. */
     private LocalDateTime datePurchased;
+    /** While RESERVED: when the reservation expires and the ticket becomes available again. */
+    private java.time.OffsetDateTime holdExpiresAt;
 }

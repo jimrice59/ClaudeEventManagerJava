@@ -712,3 +712,12 @@ button.small {
 .ticket-label {
   font-variant-numeric: tabular-nums;
 }
+
+/* My Tickets: status badge with the reservation's expiry under it */
+.status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}

@@ -1,9 +1,33 @@
 # Redis Reservation Holds
 
-**Status:** Proposal — discussion only, no code changes
-**Scope:** `TicketService.reserveTicket` / `releaseTicket`
+**Status:** Implemented 2026-11-12, with the differences below (the original proposal follows, unchanged, for the reasoning)
+**Scope:** `TicketService` reserve / reserve-next / release / purchase, plus every ticket read
 **Store:** Redis (existing instance, new keyspace)
-**Date:** 2026-09-15
+**Date:** 2026-09-15 (proposal); 2026-11-12 (implementation)
+
+## What was built, and how it differs from this proposal
+
+Reservations are now Redis holds that expire on their own (`ticket-reservation.hold-ttl`, default
+10 minutes). Implementation reference: the **Reservation holds (Redis)** section of
+docs/design-document.md, and `.claude/rules/reservation-holds.md`.
+
+| Proposal | As built | Why |
+|---|---|---|
+| An available pool per event, `SET available:event:{id}`, and `SPOP` to claim | **No pool.** "Available to reserve" = `AVAILABLE` in Postgres minus held ids. A hold is `SET hold:ticket:{id} NX PX`, and reserve-next tries the lowest-id unheld tickets in turn | A pool is a second source of truth that would need seeding for existing events (160,000 ticket ids) and syncing on every sale, cancel, and event delete. Postgres already knows what's available |
+| Return expired holds to the pool via keyspace notifications (§03), backed by a `holds:pending` sweep (§07–§08) | **Nothing to return.** A held ticket never changes in Postgres, so when the key expires, the ticket simply stops being excluded | This removes the always-on listener, the sweep job, and §06's "missed expiry orphans a ticket" risk entirely |
+| — | Per-event and per-user sorted sets of held ids (`holds:event:{id}`, `holds:user:{id}`), pruned by expiry score on every read | To exclude held tickets from Postgres queries and to list a user's holds, without scanning Redis |
+| §04: the purchase checks the hold, then `UPDATE … SOLD` | The purchase checks the hold inside the existing two-transaction saga (`AVAILABLE` → `PAYING` → `SOLD`/`AVAILABLE`), and deletes the hold only **after** `PAYING` commits | The payment-service saga postdates this proposal |
+| §05: stale reads — check Redis or accept the gap | `GET /tickets/{id}` checks Redis **first** and reports `RESERVED` + holder + `holdExpiresAt`. The per-ticket cache was removed, since a cached answer would outlive the hold | As requested |
+| §05/§06: must fail closed | Done: any Redis error → `ReservationsUnavailableException` → 503. Redis timeouts are cut from Lettuce's 60 s default to 2 s, which had stalled every request for a minute in an outage test | — |
+| §00: rush contention on Postgres rows | Resolved by `SET NX`: no Postgres write at all until purchase | — |
+
+Still open: §06's "two sources of truth" shrinks to a narrow race. If a hold expires during the
+milliseconds of a purchase's first transaction, another user can win a new hold on a ticket that's
+about to become `PAYING`; their later purchase then fails with 409/400.
+
+---
+
+*Original proposal (2026-09-15):*
 
 A design memo on moving the `AVAILABLE → RESERVED` transition out of row-level Postgres updates
 and into a short-lived, TTL-backed key in Redis — so a ticket rush contends for one atomic
@@ -141,4 +165,4 @@ load at some scale — at which point a lightweight Redis-native mutex
 
 ---
 
-No implementation yet — this captures the design discussion for review before any code is written.
+*(Original proposal ends here; see the top of this document for what was implemented.)*
