@@ -31,8 +31,9 @@ public class TicketReservationProperties {
 
     /**
      * How long a reservation (a Redis hold, see TicketHoldService) lasts before it expires on its
-     * own and the ticket becomes available again ({@code TICKET_RESERVATION_HOLD_TTL}, default 10m).
+     * own and the ticket becomes available again ({@code TICKET_RESERVATION_HOLD_TTL}, default 2m;
+     * docker-compose.yml sets 10m).
      */
     @NotNull
-    private Duration holdTtl = Duration.ofMinutes(10);
+    private Duration holdTtl = Duration.ofMinutes(2);
 }

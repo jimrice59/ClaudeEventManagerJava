@@ -8,7 +8,7 @@
 ## What was built, and how it differs from this proposal
 
 Reservations are now Redis holds that expire on their own (`ticket-reservation.hold-ttl`, default
-10 minutes). Implementation reference: the **Reservation holds (Redis)** section of
+2 minutes; docker compose sets 10). Implementation reference: the **Reservation holds (Redis)** section of
 docs/design-document.md, and `.claude/rules/reservation-holds.md`.
 
 | Proposal | As built | Why |

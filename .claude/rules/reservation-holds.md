@@ -11,8 +11,8 @@ paths:
 # Reservation Holds (Redis)
 
 A reservation is a **hold**: a Redis key that expires on its own after
-`ticket-reservation.hold-ttl` (`TICKET_RESERVATION_HOLD_TTL`, default `10m`). Implemented
-2026-11-12 from docs/redis-reservation-holds.md, with the differences recorded at the top of that doc.
+`ticket-reservation.hold-ttl` (`TICKET_RESERVATION_HOLD_TTL`, default `2m` in `application.yml`; `docker-compose.yml` sets `10m`).
+Implemented 2026-11-12 from docs/redis-reservation-holds.md, with the differences recorded at the top of that doc.
 
 **The model:** a held ticket stays `AVAILABLE` in Postgres, with no `userId`. "Available to reserve"
 means `AVAILABLE` in Postgres **and** not held in Redis. `RESERVED` is never stored; it's reported

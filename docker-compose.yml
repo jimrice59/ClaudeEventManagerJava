@@ -115,7 +115,8 @@ services:
       # approved, never charged) by default. Override with PAYMENT_SERVICE_ENABLED=true plus
       # PAYMENT_SERVICE_HOST/PORT to call a real one. See payment-service-grpc.md.
       PAYMENT_SERVICE_ENABLED: ${PAYMENT_SERVICE_ENABLED:-false}
-      # How long a ticket reservation (a Redis hold) lasts before it expires on its own.
+      # How long a ticket reservation (a Redis hold) lasts before it expires on its own. Longer
+      # than application.yml's 2m default, deliberately, for clicking through the UI by hand.
       TICKET_RESERVATION_HOLD_TTL: ${TICKET_RESERVATION_HOLD_TTL:-10m}
       # Also write the log to a file (the console output, and so `docker logs`, is unchanged).
       # It lands in ./logs/app.log on the host via the volume below. Rolled by Spring Boot's
