@@ -8,11 +8,12 @@ import org.springframework.data.cassandra.core.mapping.Table;
 import java.time.LocalDateTime;
 
 /**
- * Cassandra copy of a {@link com.eventmanager.model.Ticket}. Written (upserted by id) whenever a
- * ticket is sold or cancelled (TicketService#mirrorTicketToCassandra, async), and again for every
- * SOLD ticket when its event is deleted (TicketService#backupAndDeleteAllForEvent, synchronous).
- * Tickets are never written at creation, so a ticket that was never sold has no row; a cancelled
- * one keeps a row showing AVAILABLE with no user_id (its buyer is in ticket_operations).
+ * Cassandra copy of a currently sold {@link com.eventmanager.model.Ticket}. Inserted when a ticket
+ * is sold and deleted when the sale is cancelled (TicketService#writeSoldTicketToCassandra /
+ * #removeCancelledTicketFromCassandra, async), and written again for every SOLD ticket when its
+ * event is deleted (TicketService#backupAndDeleteAllForEvent, synchronous), where it then stays as
+ * the archive. Tickets that aren't sold have no row; a cancelled sale is recorded in
+ * ticket_operations.
  */
 @Table("tickets")
 @Getter

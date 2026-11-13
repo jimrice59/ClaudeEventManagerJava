@@ -412,8 +412,9 @@ class TicketServiceTest {
         verify(ticketOperationRepository).save(captor.capture());
         assertThat(captor.getValue().getOperation()).isEqualTo(TicketOperationType.PAYMENT_DECLINED);
         assertThat(captor.getValue().getIdempotencyToken()).isEqualTo("idem-declined");
-        // A declined payment never sold the ticket: nothing to mirror.
+        // A declined payment never sold the ticket: nothing to write or delete.
         verify(cassandraAsyncWriter, never()).saveTicket(any(), any());
+        verify(cassandraAsyncWriter, never()).deleteTicket(any(), any());
     }
 
     @Test
@@ -793,12 +794,9 @@ class TicketServiceTest {
         assertThat(recorded.getPaymentService()).isEqualTo("Square");
         assertThat(recorded.getPaymentConfirmationDetails()).isEqualTo("payment confirmation 1234");
         verify(cassandraAsyncWriter).saveTicketOperation(any(CassandraTicketOperation.class));
-        // The Cassandra row is updated to the cancelled state: AVAILABLE, no owner.
-        ArgumentCaptor<CassandraTicket> mirrored = ArgumentCaptor.forClass(CassandraTicket.class);
-        verify(cassandraAsyncWriter).saveTicket(mirrored.capture(), any(java.time.Instant.class));
-        assertThat(mirrored.getValue().getId()).isEqualTo(1L);
-        assertThat(mirrored.getValue().getStatus()).isEqualTo("AVAILABLE");
-        assertThat(mirrored.getValue().getUserId()).isNull();
+        // The sold ticket's Cassandra row is deleted, not updated.
+        verify(cassandraAsyncWriter).deleteTicket(eq(1L), any(java.time.Instant.class));
+        verify(cassandraAsyncWriter, never()).saveTicket(any(), any());
     }
 
     @Test

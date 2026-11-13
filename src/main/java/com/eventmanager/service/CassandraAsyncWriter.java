@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.cassandra.core.CassandraOperations;
+import org.springframework.data.cassandra.core.DeleteOptions;
 import org.springframework.data.cassandra.core.InsertOptions;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -118,31 +119,48 @@ public class CassandraAsyncWriter {
     }
 
     /**
-     * Upserts a ticket's current state into the Cassandra {@code tickets} table, after a sale or a
-     * cancellation (see TicketService#mirrorTicketToCassandra). Two things differ from the other
-     * async saves:
-     * <ul>
-     *   <li>The write carries {@code changedAt} as its Cassandra write timestamp, so if a sale's
-     *       and a later cancel's writes reach Cassandra out of order (each runs on its own
-     *       virtual thread), the later change still wins: Cassandra keeps the cell with the
-     *       newest timestamp, not the last to arrive.</li>
-     *   <li>Nulls are written, so a cancel's cleared {@code user_id} replaces the buyer's id
-     *       instead of being skipped.</li>
-     * </ul>
+     * Inserts a sold ticket into the Cassandra {@code tickets} table (see
+     * TicketService#writeSoldTicketToCassandra). {@link #deleteTicket} removes it again on cancel.
+     * <p>
+     * Both carry the time of the change as their Cassandra write timestamp. Each runs on its own
+     * virtual thread, so a sale's insert and a quick cancel's delete can reach Cassandra out of
+     * order; Cassandra resolves them by timestamp, not arrival, so the later change still wins (a
+     * delete that arrives first shadows the older insert, and a re-sale's newer insert brings the
+     * row back).
      */
     @Async("cassandraExecutor")
     public void saveTicket(CassandraTicket ticket, Instant changedAt) {
         if (cassandraOperations == null) return;
         try {
-            // In microseconds, Cassandra's own precision: InsertOptions.timestamp(Instant) truncates
-            // to milliseconds, so two changes within one millisecond would tie.
-            long micros = Math.addExact(Math.multiplyExact(changedAt.getEpochSecond(), 1_000_000L), changedAt.getNano() / 1_000);
-            cassandraOperations.insert(ticket, InsertOptions.builder().timestamp(micros).withInsertNulls().build());
+            cassandraOperations.insert(ticket, InsertOptions.builder().timestamp(micros(changedAt)).build());
             log.debug("Async Cassandra save completed for ticket id={} status={}", ticket.getId(), ticket.getStatus());
             count("ticket", "save", true);
         } catch (Exception e) {
             log.error("Async Cassandra save failed for ticket id={}", ticket.getId(), e);
             count("ticket", "save", false);
         }
+    }
+
+    /** Deletes a cancelled ticket's row, timestamped like {@link #saveTicket}. */
+    @Async("cassandraExecutor")
+    public void deleteTicket(Long id, Instant changedAt) {
+        if (cassandraOperations == null) return;
+        try {
+            cassandraOperations.delete(CassandraTicket.builder().id(id).build(),
+                    DeleteOptions.builder().timestamp(micros(changedAt)).build());
+            log.debug("Async Cassandra delete completed for ticket id={}", id);
+            count("ticket", "delete", true);
+        } catch (Exception e) {
+            log.error("Async Cassandra delete failed for ticket id={}", id, e);
+            count("ticket", "delete", false);
+        }
+    }
+
+    /**
+     * Microseconds since the epoch, Cassandra's write-timestamp precision. The options builders'
+     * timestamp(Instant) truncates to milliseconds, so two changes within one millisecond would tie.
+     */
+    static long micros(Instant instant) {
+        return Math.addExact(Math.multiplyExact(instant.getEpochSecond(), 1_000_000L), instant.getNano() / 1_000);
     }
 }

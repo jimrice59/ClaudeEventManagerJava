@@ -7,6 +7,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.data.cassandra.core.CassandraOperations;
+import org.springframework.data.cassandra.core.DeleteOptions;
 import org.springframework.data.cassandra.core.InsertOptions;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -39,22 +40,31 @@ class CassandraAsyncWriterTest {
     }
 
     @Test
-    void saveTicketWritesNullsWithTheChangeTimeAsTheCassandraTimestamp() {
+    void ticketInsertAndDeleteCarryTheChangeTimeAsAMicrosecondCassandraTimestamp() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         CassandraAsyncWriter writer = new CassandraAsyncWriter(registry);
         CassandraOperations operations = mock(CassandraOperations.class);
         ReflectionTestUtils.setField(writer, "cassandraOperations", operations);
-        CassandraTicket cancelled = CassandraTicket.builder().id(7L).eventId(3L).status("AVAILABLE").userId(null).build();
-        java.time.Instant changedAt = java.time.Instant.parse("2026-11-13T10:15:30.123456Z");
+        CassandraTicket sold = CassandraTicket.builder().id(7L).eventId(3L).status("SOLD").userId(42L).build();
+        java.time.Instant soldAt = java.time.Instant.parse("2026-11-13T10:15:30.123456Z");
+        java.time.Instant cancelledAt = java.time.Instant.parse("2026-11-13T10:15:30.123789Z");
 
-        writer.saveTicket(cancelled, changedAt);
+        writer.saveTicket(sold, soldAt);
+        writer.deleteTicket(7L, cancelledAt);
 
-        ArgumentCaptor<InsertOptions> options = ArgumentCaptor.forClass(InsertOptions.class);
-        verify(operations).insert(same(cancelled), options.capture());
-        // Newest change wins even if writes arrive out of order; the cleared user_id is written.
-        assertThat(options.getValue().getTimestamp()).isEqualTo(1794564930123456L);
-        assertThat(options.getValue().isInsertNulls()).isTrue();
+        ArgumentCaptor<InsertOptions> insert = ArgumentCaptor.forClass(InsertOptions.class);
+        verify(operations).insert(same(sold), insert.capture());
+        // Microseconds, not the builder's millisecond-truncated timestamp(Instant): the two
+        // changes are 333µs apart and must not tie.
+        assertThat(insert.getValue().getTimestamp()).isEqualTo(1794564930123456L);
+        ArgumentCaptor<CassandraTicket> deleted = ArgumentCaptor.forClass(CassandraTicket.class);
+        ArgumentCaptor<DeleteOptions> delete = ArgumentCaptor.forClass(DeleteOptions.class);
+        verify(operations).delete(deleted.capture(), delete.capture());
+        assertThat(deleted.getValue().getId()).isEqualTo(7L);
+        assertThat(delete.getValue().getTimestamp()).isEqualTo(1794564930123789L);
         assertThat(registry.counter("cassandra.writes", "entity", "ticket", "operation", "save",
+                "outcome", "success").count()).isEqualTo(1);
+        assertThat(registry.counter("cassandra.writes", "entity", "ticket", "operation", "delete",
                 "outcome", "success").count()).isEqualTo(1);
     }
 }
