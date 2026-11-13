@@ -6,7 +6,7 @@ const baseURL = `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1`;
 
 export const apiClient = axios.create({ baseURL });
 
-const TOKEN_KEY = "event-manager.token";
+export const TOKEN_KEY = "event-manager.token";
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);

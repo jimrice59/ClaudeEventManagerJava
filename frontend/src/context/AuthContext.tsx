@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as authApi from "../api/auth";
-import { getToken, setToken } from "../api/client";
+import { getToken, setToken, TOKEN_KEY } from "../api/client";
 import type { LoginRequest, RegisterRequest, Role } from "../types";
 
 interface AuthUser {
@@ -30,6 +30,33 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(loadStoredUser);
+  // Bumped when another window switches the signed-in user; keys the subtree below so every page
+  // remounts and refetches its data as the new user.
+  const [session, setSession] = useState(0);
+  const userRef = useRef(user);
+  userRef.current = user;
+
+  // The token and user live in localStorage, which every window of this origin shares, and every
+  // API request reads the token at send time. So a login or logout in another window changes who
+  // this window's requests are made as. Follow it: the "storage" event fires in every *other*
+  // window of the origin when a key changes (never in the one that made the change).
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      // key is null when storage was cleared entirely.
+      if (e.key !== null && e.key !== TOKEN_KEY && e.key !== USER_KEY) return;
+      const current = userRef.current;
+      const next = loadStoredUser();
+      if (current?.username === next?.username) {
+        // Same person (e.g. logged in again): keep the page, just pick up any role change.
+        if (current?.role !== next?.role) setUser(next);
+        return;
+      }
+      setUser(next);
+      setSession((n) => n + 1);
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const applyAuthResponse = useCallback((response: { token: string; username: string; email: string; role: Role }) => {
     setToken(response.token);
@@ -72,7 +99,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user, login, register, logout],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      <Fragment key={session}>{children}</Fragment>
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {
