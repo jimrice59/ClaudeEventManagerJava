@@ -980,6 +980,8 @@ default in local/dev runs; a production deployment would typically raise the roo
 the service layer's business events.
 
 ### Monitoring
+For a hands-on guide (Grafana setup, queries, dashboards, alerts, and the known double-scrape issue), see [monitoring-with-prometheus-grafana.md](monitoring-with-prometheus-grafana.md).
+
 `spring-boot-starter-actuator` + `micrometer-registry-prometheus` add observability with no instrumentation code:
 
 | Endpoint | Auth | What it shows |

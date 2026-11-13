@@ -7,6 +7,8 @@ paths:
 
 # Monitoring
 
+User-facing guide: docs/monitoring-with-prometheus-grafana.md (Grafana setup, verified PromQL queries, dashboards, alerts). Keep its queries in step with metric changes. Two caveats it documents: `monitoring/prometheus.yml` scrapes both `app:8080` and `host.docker.internal:8080`, which reach the same container in Docker Compose, so every series is collected twice (filter by `instance`); and Redis cache hit/miss counters read 0 because `RedisConfig` doesn't call `enableStatistics()`.
+
 `spring-boot-starter-actuator` + `micrometer-registry-prometheus` add observability with no instrumentation code:
 
 | Endpoint | Auth | What it shows |
