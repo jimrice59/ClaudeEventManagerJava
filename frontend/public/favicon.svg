@@ -11,10 +11,10 @@
   <path d="M75 30 L93 17 L94 42 Z" fill="#431407"/>
   <!-- head with cheek fluff on the near side -->
   <path d="M27 58 C26 38 44 26 64 26 C86 26 103 39 104 57 C104 63 102 68 99 72 L107 77 L97 80 L102 88 L91 88
-           C83 99 70 105 57 105 C42 105 28 96 23 83 C20 75 23 66 27 58 Z" fill="#ea580c"/>
+           C83 99 70 105 57 105 C42 105 28 96 22 88 L6 75 C13 69 20 62 27 57 Z" fill="#ea580c"/>
   <!-- cream lower face: snout (left, rising to meet the nose) sweeping into the near cheek -->
-  <path d="M12 76 C13 67 22 62 33 62 C45 63 55 70 61 79 C70 87 82 88 94 84 L91 88
-           C83 99 70 105 57 106 C40 108 19 105 13 93 C11 87 11 81 12 76 Z" fill="#fff7ed"/>
+  <path d="M7 76 C15 69 23 63 33 62 C45 63 55 70 61 79 C70 87 82 88 94 84 L91 88
+           C83 99 70 105 57 106 C40 106 22 96 7 76 Z" fill="#fff7ed"/>
   <!-- eyes: wide open on top and looking straight at you; cheeks lift the lower lids into
        "smiling eyes" (warm and self-assured, unlike sly lowered upper lids) -->
   <ellipse cx="42" cy="52" rx="5.8" ry="7.4" fill="#2b1d16"/>
@@ -34,10 +34,10 @@
   <!-- confident, warm smile: open just enough to show a bit of tongue, both corners up -->
   <path d="M17 80 Q32 88 50 84.5 Q45 94.5 33.5 95 Q22 93.5 17 80 Z" fill="#7f1d1d"/>
   <path d="M24.5 90.5 Q31.5 96.6 40.5 92.8 Q33 88.4 24.5 90.5 Z" fill="#fb7185"/>
-  <path d="M15 78 Q32 88.5 51 84" fill="none" stroke="#2b1d16" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M12.5 78.5 Q32 88.5 51 84" fill="none" stroke="#2b1d16" stroke-width="2.4" stroke-linecap="round"/>
   <path d="M50.6 84.2 Q54.8 83.2 55.6 79.2" fill="none" stroke="#2b1d16" stroke-width="2.4" stroke-linecap="round"/>
   <!-- nose at the snout tip, drawn last so it sits on top -->
-  <ellipse cx="15.5" cy="74.5" rx="6.4" ry="5.2" fill="#2b1d16"/>
-  <ellipse cx="13.6" cy="72.8" rx="2.1" ry="1.3" fill="#fff" opacity="0.75"/>
+  <ellipse cx="9.5" cy="74.8" rx="5.2" ry="4.3" fill="#2b1d16" transform="rotate(-12 9.5 74.8)"/>
+  <ellipse cx="8" cy="73.4" rx="1.8" ry="1.1" fill="#fff" opacity="0.75"/>
  </g>
 </svg>
