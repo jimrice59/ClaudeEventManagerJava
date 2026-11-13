@@ -117,6 +117,14 @@ services:
       PAYMENT_SERVICE_ENABLED: ${PAYMENT_SERVICE_ENABLED:-false}
       # How long a ticket reservation (a Redis hold) lasts before it expires on its own.
       TICKET_RESERVATION_HOLD_TTL: ${TICKET_RESERVATION_HOLD_TTL:-10m}
+      # Also write the log to a file (the console output, and so `docker logs`, is unchanged).
+      # It lands in ./logs/app.log on the host via the volume below. Rolled by Spring Boot's
+      # Logback defaults unless overridden. Set APP_LOG_FILE= (empty) to turn the file off.
+      LOGGING_FILE_NAME: ${APP_LOG_FILE-/var/log/event-manager/app.log}
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_FILE_SIZE: ${APP_LOG_MAX_FILE_SIZE:-10MB}
+      LOGGING_LOGBACK_ROLLINGPOLICY_MAX_HISTORY: ${APP_LOG_MAX_HISTORY:-7}
+    volumes:
+      - ./logs:/var/log/event-manager
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.event-manager.rule=Host(`localhost`)"

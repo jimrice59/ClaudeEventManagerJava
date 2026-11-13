@@ -12,3 +12,6 @@ certs/*.crt
 certs/*.p12
 
 .claude/settings.local.json
+
+# App log files written by the docker-compose app container (LOGGING_FILE_NAME)
+logs/

@@ -82,6 +82,11 @@ docker compose up -d
 # Only the app container is recreated; infrastructure containers and their data are untouched.
 docker compose up -d --build app
 
+# The app container also writes ./logs/app.log on the host (LOGGING_FILE_NAME, bind mount);
+# `docker logs` still works. Size/history: APP_LOG_MAX_FILE_SIZE (10MB), APP_LOG_MAX_HISTORY (7);
+# APP_LOG_FILE= (empty) turns it off.
+tail -f logs/app.log
+
 # App + Traefik — adds Traefik reverse proxy (port 80) and dashboard (port 9000)
 docker compose --profile traefik up -d
 

@@ -68,6 +68,13 @@ java -jar target/event-manager-1.0.0.jar
 
 ## Docker
 
+**Log file.** In docker compose, the app container also writes its log to `./logs/app.log` on the
+host (bind-mounted at `/var/log/event-manager`), via Spring Boot's `LOGGING_FILE_NAME`. Console
+output, and so `docker logs`, is unchanged. Logback rolls the file at `APP_LOG_MAX_FILE_SIZE`
+(default `10MB`) and keeps `APP_LOG_MAX_HISTORY` (default `7`) days. `APP_LOG_FILE= docker compose up
+-d app` (empty) turns the file off. Changing any of these recreates only the app container
+(`docker compose up -d app`); no rebuild is needed. `logs/` is git- and docker-ignored.
+
 ```bash
 # Build image (~137 MB content size)
 docker build -t event-manager .
