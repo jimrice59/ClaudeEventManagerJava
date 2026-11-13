@@ -53,9 +53,17 @@ export function NavBar() {
           <div className="nav-auth">
             {isAuthenticated ? (
               <>
-                <span className="nav-user">
-                  {user?.username}
-                  {user?.role === "ROLE_ADMIN" && <span className="role-chip">admin</span>}
+                <span className="nav-user" title={`Signed in as ${user?.username}`}>
+                  <span className="user-avatar" aria-hidden="true">
+                    {user?.username.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="user-text">
+                    <span className="user-label">Signed in as</span>
+                    <span className="user-name">
+                      <span className="user-name-text">{user?.username}</span>
+                      {user?.role === "ROLE_ADMIN" && <span className="role-chip">admin</span>}
+                    </span>
+                  </span>
                 </span>
                 <button onClick={handleLogout} className="button on-band small">
                   Log out
