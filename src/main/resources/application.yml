@@ -38,6 +38,13 @@ spring:
     local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
     schema-action: create_if_not_exists
 
+# create_if_not_exists never alters an existing table, so an entity field added later breaks every
+# insert into that table. CassandraSchemaCheck compares entities with tables at startup and logs the
+# ALTER statements to run; fail-on-mismatch=true refuses to start instead.
+cassandra-schema-check:
+  enabled: ${CASSANDRA_SCHEMA_CHECK_ENABLED:true}
+  fail-on-mismatch: ${CASSANDRA_SCHEMA_CHECK_FAIL_ON_MISMATCH:false}
+
   cache:
     type: redis
     redis:
@@ -77,7 +84,7 @@ edge-metrics:
 ticket-reservation:
   max-retries: ${TICKET_RESERVATION_MAX_RETRIES:3}
   # How long a reservation (a Redis hold) lasts before it expires and the ticket is available again.
-  hold-ttl: ${TICKET_RESERVATION_HOLD_TTL:10m}
+  hold-ttl: ${TICKET_RESERVATION_HOLD_TTL:2m}
 
 # gRPC client config for the external payment service called synchronously from
 # TicketService.purchaseTicket — see docs/payment-service-integration.md.

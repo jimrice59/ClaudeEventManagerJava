@@ -31,6 +31,12 @@ Scrape config is in `monitoring/prometheus.yml`. Grafana dashboard **4701** (JVM
 
 `management.endpoint.health.probes.enabled: true` exposes `/actuator/health/liveness` and `/actuator/health/readiness` as dedicated Kubernetes probe endpoints. Liveness checks only that the JVM/application context is alive; readiness checks datastores. Using `/actuator/health` for liveness would restart pods whenever a database is unreachable, which is wrong.
 
+**Cassandra metrics:**
+- `cassandra.writes`, a counter with `entity`, `operation`, and `outcome=success|failure` tags, counted by `CassandraAsyncWriter`.
+- `cassandra.schema.missing.columns`, a gauge set at startup by `CassandraSchemaCheck`.
+
+Async write failures used to show up only as ERROR logs, which hid a weeks-long schema drift (see cassandra-dual-write.md). In Prometheus, alert on `increase(cassandra_writes_total{outcome="failure"}[15m]) > 0` and `cassandra_schema_missing_columns > 0`.
+
 **Edge metrics toggle (`edge-metrics.enabled`):** `EdgeMetricsConfig` (`com.eventmanager.metrics`) registers a
 Micrometer `MeterFilter` — the same extension point Spring Boot's own `management.metrics.enable.*` property
 uses internally — that, when `edge-metrics.enabled` (`EdgeMetricsProperties`, env `EDGE_METRICS_ENABLED`,

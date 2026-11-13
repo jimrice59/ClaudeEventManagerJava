@@ -26,7 +26,11 @@ DESCRIBE KEYSPACES;
 USE event_manager;
 ```
 
-The `event_manager` keyspace is created automatically by the `cassandra-init` container on first `docker compose up -d`. Tables (`events`, `performers`) are created automatically by Spring Data Cassandra on app startup via `spring.cassandra.schema-action: create_if_not_exists`.
+The `event_manager` keyspace is created automatically by the `cassandra-init` container on first `docker compose up -d`. Four tables (`events`, `performers`, `tickets`, `ticket_operations`) are created automatically by Spring Data Cassandra on app startup via `spring.cassandra.schema-action: create_if_not_exists`. That setting **never alters an existing table**, so a field added to an entity later makes every insert into that table fail. At startup, `CassandraSchemaCheck` logs the `ALTER TABLE ... ADD` statements to run when that happens; see `.claude/rules/cassandra-dual-write.md`. Every table is keyed by `id` alone, so filtering on any other column needs `ALLOW FILTERING` (a full scan; fine in dev). For example:
+
+```sql
+SELECT id, operation, purchase_price FROM ticket_operations WHERE user_id = 1 ALLOW FILTERING;
+```
 
 ---
 

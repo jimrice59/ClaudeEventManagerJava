@@ -42,4 +42,19 @@ Holds the performer, event, and ticket-operation repositories with `@Autowired(r
 
 `spring.cassandra.schema-action: create_if_not_exists` auto-creates all four tables (`events`, `performers`, `tickets`, `ticket_operations`) on startup. The `event_manager` keyspace is created by the `cassandra-init` container in docker-compose on first `docker compose up -d`. Cassandra takes ~60 s to start; the healthcheck has `start_period: 60s`.
 
+**Schema drift (found and fixed 2026-11-12).** `schema-action: create_if_not_exists` creates a missing
+table but **never alters an existing one**. After `CassandraEvent.ticketsTotal` (renamed from
+`ticketsAvailable`), `CassandraTicketOperation.paymentRequestId`/`idempotencyToken`, and
+`CassandraTicket.datePurchased` were added, every insert naming those columns failed with
+"Undefined column name …". Events and ticket operations stopped reaching Cassandra for weeks, logged
+only as async ERRORs. Worse, the synchronous sold-ticket backup in
+`TicketService.backupAndDeleteAllForEvent` threw, which rolled back the delete of any event with
+sold tickets. Fixed by:
+- **Adding the columns:** `ALTER TABLE ... ADD`. The old `events.tickets_available` column is left in place; extra columns are harmless.
+- **Backfilling:** events and ticket operations were copied from Postgres with generated CQL `INSERT`s, which upsert by primary key.
+- **Detection:** `CassandraSchemaCheck` (`com.eventmanager.cassandra.schema`) runs on `ApplicationReadyEvent`. It compares Spring Data's mapping model (each entity's table, columns, and CQL types via `CassandraConverter.getColumnTypeResolver()`) with the live table metadata. On drift, it logs one ERROR per table with a ready-to-run `ALTER TABLE ... ADD (...)` statement, sets the `cassandra.schema.missing.columns` gauge, and, if `cassandra-schema-check.fail-on-mismatch=true` (`CASSANDRA_SCHEMA_CHECK_FAIL_ON_MISMATCH`, default false), refuses to start.
+- **Counting writes:** `CassandraAsyncWriter` now counts every write as `cassandra.writes{entity,operation,outcome=success|failure}`. Alert on `cassandra_writes_total{outcome="failure"}`.
+
+Verified live: deployed against the drifted keyspace, the check reported exactly the 4 missing columns (gauge 4). After applying its statements, it passed (gauge 0), and a write showed `outcome="success"`. When adding a field to a Cassandra entity, run the logged `ALTER` (or drop and recreate the table in dev).
+
 `@EnableJpaRepositories(basePackages = "com.eventmanager.repository")` on `EventManagerApplication` prevents Spring Data JPA from scanning the `cassandra.repository` package, avoiding multi-store conflicts.
