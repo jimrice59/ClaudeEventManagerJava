@@ -38,13 +38,6 @@ spring:
     local-datacenter: ${CASSANDRA_DATACENTER:datacenter1}
     schema-action: create_if_not_exists
 
-# create_if_not_exists never alters an existing table, so an entity field added later breaks every
-# insert into that table. CassandraSchemaCheck compares entities with tables at startup and logs the
-# ALTER statements to run; fail-on-mismatch=true refuses to start instead.
-cassandra-schema-check:
-  enabled: ${CASSANDRA_SCHEMA_CHECK_ENABLED:true}
-  fail-on-mismatch: ${CASSANDRA_SCHEMA_CHECK_FAIL_ON_MISMATCH:false}
-
   cache:
     type: redis
     redis:
@@ -65,6 +58,13 @@ cassandra-schema-check:
         spring.json.value.default.type: com.eventmanager.kafka.VideoEvent
     listener:
       ack-mode: manual
+
+# create_if_not_exists never alters an existing table, so an entity field added later breaks every
+# insert into that table. CassandraSchemaCheck compares entities with tables at startup and logs the
+# ALTER statements to run; fail-on-mismatch=true refuses to start instead.
+cassandra-schema-check:
+  enabled: ${CASSANDRA_SCHEMA_CHECK_ENABLED:true}
+  fail-on-mismatch: ${CASSANDRA_SCHEMA_CHECK_FAIL_ON_MISMATCH:false}
 
 jwt:
   secret: ${JWT_SECRET:3cfa76ef14937c1c0ea519f8fc057a80fcd04a7420f8e8bcd0a7567c272e007b}
