@@ -5,7 +5,7 @@ import { extractErrorMessage } from "../api/client";
 import { ErrorBanner } from "../components/ErrorBanner";
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, signOutReason } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState("");
@@ -32,6 +32,7 @@ export function LoginPage() {
   return (
     <div className="card form-card">
       <h1>Log in</h1>
+      {signOutReason && <div className="notice-banner">{signOutReason}</div>}
       <ErrorBanner message={error} />
       <form onSubmit={handleSubmit}>
         <label>

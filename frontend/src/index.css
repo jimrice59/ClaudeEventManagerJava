@@ -420,7 +420,8 @@ button,
   justify-content: center;
 }
 
-button[type="submit"] {
+button[type="submit"],
+.button.primary {
   background: var(--accent);
   color: var(--on-accent);
   border-color: var(--accent);
@@ -432,7 +433,8 @@ button:hover:not(:disabled),
   color: var(--accent);
 }
 
-button[type="submit"]:hover:not(:disabled) {
+button[type="submit"]:hover:not(:disabled),
+.button.primary:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
   color: var(--on-accent);
@@ -585,6 +587,41 @@ button.small {
   padding: 10px 14px;
   margin-bottom: 16px;
   font-size: 14px;
+}
+
+/* Neutral information, e.g. why the user was signed out (LoginPage) */
+.notice-banner {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+/* Inactivity warning (IdleWarning.tsx): a dimmed backdrop and a centered dialog */
+.idle-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(28, 18, 13, 0.55);
+}
+
+.idle-dialog {
+  width: min(420px, 100%);
+  margin: 0;
+}
+
+.idle-dialog h2 {
+  margin-top: 0;
+}
+
+.idle-dialog strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .success-banner {

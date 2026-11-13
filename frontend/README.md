@@ -67,7 +67,14 @@ The nav bar now shows the username and role, plus a **Log out** button. Concrete
 
 The client never has to re-enter credentials for this — once logged in, every API call automatically carries the session's JWT.
 
-Session persistence: the token and basic profile (username/email/role) are kept in the browser's `localStorage`, so refreshing the page or closing and reopening the tab keeps the client logged in. Logging out clears it. There's no server-side session to expire early — the JWT itself is valid for 24 hours from issuance regardless of browser activity.
+Session persistence: the token and basic profile (username/email/role) are kept in the browser's `localStorage`, so refreshing the page or closing and reopening the tab keeps the client logged in. Logging out clears it.
+
+Session limits: the client is signed out automatically, with the reason shown on the login page, when either of these happens:
+
+- **Inactivity:** no mouse, keyboard, touch, or scroll activity in any window for `VITE_IDLE_TIMEOUT_MINUTES` (default 15). A "Still there?" dialog counts down the last minute; any activity or "Stay signed in" dismisses it. Activity is shared across windows, so using one keeps all of them signed in, and they warn and sign out together. Checked against the clock, so a session reopened after a long absence (or a laptop waking from sleep) times out immediately.
+- **Token expiry:** the JWT is valid for 30 minutes from login (`JWT_EXPIRATION_MS` on the backend) and there's no refresh token, so even an active session ends then. The UI signs out when the token's `exp` passes, and also on any 401 to a request that carried the current token.
+
+The inactivity timeout is a convenience enforced in the browser only. The real limit is the token's lifetime, which the server enforces.
 
 ### 4. Admin-only actions
 

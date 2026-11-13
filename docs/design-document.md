@@ -869,7 +869,7 @@ never holds a Postgres connection or row lock.
 ### Authentication flows
 
 **Custom JWT** (`POST /api/v1/auth/login` → `Authorization: Bearer <token>`)
-`JwtTokenProvider` reads `jwt.secret` (BASE64-encoded, HMAC-SHA) and `jwt.expiration-ms` from config. Token contains only the username as subject. On each request, `JwtAuthenticationFilter` runs before `BearerTokenAuthenticationFilter`: it validates the HMAC signature, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`. `validateToken` catches all JJWT exceptions including `JwtException` (catch-all for algorithm mismatches when an RS256 OAuth2 token arrives) — returning false allows `BearerTokenAuthenticationFilter` to try next.
+`JwtTokenProvider` reads `jwt.secret` (BASE64-encoded, HMAC-SHA) and `jwt.expiration-ms` from config (`JWT_EXPIRATION_MS`, default 30 minutes since 2026-11-13, was 24 hours; there's no refresh token, so a login lasts at most that long, active or not; the React UI also signs out after an inactivity timeout, see the frontend docs). Token contains only the username as subject. On each request, `JwtAuthenticationFilter` runs before `BearerTokenAuthenticationFilter`: it validates the HMAC signature, loads `UserDetails` from DB, and sets `UsernamePasswordAuthenticationToken` in the `SecurityContext`. `validateToken` catches all JJWT exceptions including `JwtException` (catch-all for algorithm mismatches when an RS256 OAuth2 token arrives) — returning false allows `BearerTokenAuthenticationFilter` to try next.
 
 **OAuth2 `client_credentials`** (M2M — no user login):
 ```bash

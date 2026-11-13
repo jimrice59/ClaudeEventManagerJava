@@ -29,7 +29,7 @@ data:
   CASSANDRA_PORT: "9042"
   CASSANDRA_KEYSPACE: event_manager
   CASSANDRA_DATACENTER: datacenter1
-  JWT_EXPIRATION_MS: "86400000"
+  JWT_EXPIRATION_MS: "1800000"
 
 ---
 apiVersion: apps/v1

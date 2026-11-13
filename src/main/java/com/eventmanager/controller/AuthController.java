@@ -40,7 +40,7 @@ public class AuthController {
     }
 
     @Operation(summary = "Login and obtain JWT",
-               description = "Authenticates with username and password; returns a signed JWT valid for 24 hours.")
+               description = "Authenticates with username and password; returns a signed JWT valid for 30 minutes by default (jwt.expiration-ms / JWT_EXPIRATION_MS).")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login successful; returns JWT",
                     content = @Content(schema = @Schema(implementation = AuthResponse.class))),

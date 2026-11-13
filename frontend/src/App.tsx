@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
+import { IdleWarning } from "./components/IdleWarning";
 import { AdminRoute, RequireAuth } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -18,6 +19,7 @@ function App() {
   return (
     <>
       <NavBar />
+      <IdleWarning />
       <main className="app-main">
         <Routes>
           <Route path="/" element={<EventsPage />} />
