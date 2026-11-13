@@ -34,6 +34,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -437,6 +439,7 @@ public class TicketService {
             ticket.setDatePurchased(LocalDateTime.now());
             Ticket saved = ticketRepository.save(ticket);
             recordOperation(saved, TicketOperationType.PURCHASE, userId, paymentRequestId, outcome);
+            mirrorTicketToCassandra(saved);
             log.info("Purchased ticket id={} for user id={}, confirmationId={}", saved.getId(), userId, outcome.confirmationId());
             return toResponse(saved);
         }
@@ -474,6 +477,7 @@ public class TicketService {
         ticket.setUserId(null);
         Ticket saved = ticketRepository.save(ticket);
         recordOperation(saved, TicketOperationType.CANCEL, userId);
+        mirrorTicketToCassandra(saved);
         log.info("Cancelled ticket id={} for user id={}", saved.getId(), userId);
         return toResponse(saved);
     }
@@ -671,6 +675,30 @@ public class TicketService {
         }
         List<CassandraTicket> backups = soldTickets.stream().map(this::toCassandraEntity).toList();
         ticketCassandraRepository.saveAll(backups);
+    }
+
+    /**
+     * Upserts the ticket's current state into the Cassandra {@code tickets} table, async and
+     * fire-and-forget like the other dual-writes: called when a ticket is sold (SOLD, with its
+     * buyer and datePurchased) and when it's cancelled (back to AVAILABLE, user_id cleared). The
+     * row is built now, but only sent once the surrounding transaction commits, so Cassandra never
+     * gets a change that Postgres rolled back. Without a transaction (unit tests), it's sent
+     * straight away. The time of the change becomes the write's Cassandra timestamp (see
+     * CassandraAsyncWriter#saveTicket), so out-of-order arrival can't leave a stale state.
+     */
+    private void mirrorTicketToCassandra(Ticket ticket) {
+        CassandraTicket row = toCassandraEntity(ticket);
+        Instant changedAt = Instant.now();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    cassandraAsyncWriter.saveTicket(row, changedAt);
+                }
+            });
+        } else {
+            cassandraAsyncWriter.saveTicket(row, changedAt);
+        }
     }
 
     private CassandraTicket toCassandraEntity(Ticket ticket) {

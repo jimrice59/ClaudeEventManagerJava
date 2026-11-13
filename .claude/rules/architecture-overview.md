@@ -43,7 +43,7 @@ HTTP Request
        → Controller (validates input with @Valid)
        → Service (business logic, Redis cache annotations)
        → Repository (JPA / PostgreSQL)
-            ↓ (event, performer, and ticket-operation writes, fire-and-forget)
+            ↓ (event, performer, ticket-operation, and sold/cancelled-ticket writes, fire-and-forget)
        → CassandraAsyncWriter (@Async → cassandraExecutor thread pool → EventCassandraRepository / PerformerCassandraRepository / TicketOperationCassandraRepository)
             ↓ (performer video add/delete, fire-and-forget with retry)
        → PerformerVideoEventPublisher (@Async → kafkaExecutor thread pool → KafkaTemplate → performer-video-events topic)

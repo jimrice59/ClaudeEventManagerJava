@@ -8,10 +8,11 @@ import org.springframework.data.cassandra.core.mapping.Table;
 import java.time.LocalDateTime;
 
 /**
- * Archival copy of a {@link com.eventmanager.model.Ticket}, written only when its event
- * is deleted (see TicketService#backupAndDeleteAllForEvent) — tickets are never written
- * to Cassandra at creation time. Only tickets that were ever purchased (SOLD) are backed up;
- * all other tickets for the event are deleted from Postgres without a Cassandra copy.
+ * Cassandra copy of a {@link com.eventmanager.model.Ticket}. Written (upserted by id) whenever a
+ * ticket is sold or cancelled (TicketService#mirrorTicketToCassandra, async), and again for every
+ * SOLD ticket when its event is deleted (TicketService#backupAndDeleteAllForEvent, synchronous).
+ * Tickets are never written at creation, so a ticket that was never sold has no row; a cancelled
+ * one keeps a row showing AVAILABLE with no user_id (its buyer is in ticket_operations).
  */
 @Table("tickets")
 @Getter

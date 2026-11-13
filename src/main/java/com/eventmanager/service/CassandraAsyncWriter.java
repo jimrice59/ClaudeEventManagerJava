@@ -2,6 +2,7 @@ package com.eventmanager.service;
 
 import com.eventmanager.cassandra.model.CassandraEvent;
 import com.eventmanager.cassandra.model.CassandraPerformer;
+import com.eventmanager.cassandra.model.CassandraTicket;
 import com.eventmanager.cassandra.model.CassandraTicketOperation;
 import com.eventmanager.cassandra.repository.EventCassandraRepository;
 import com.eventmanager.cassandra.repository.PerformerCassandraRepository;
@@ -10,8 +11,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.cassandra.core.CassandraOperations;
+import org.springframework.data.cassandra.core.InsertOptions;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
+import java.time.Instant;
 
 @Slf4j
 @Service
@@ -39,6 +44,10 @@ public class CassandraAsyncWriter {
 
     @Autowired(required = false)
     private TicketOperationCassandraRepository ticketOperationCassandraRepository;
+
+    /** For ticket writes, which need a per-write timestamp that the repository API can't set. */
+    @Autowired(required = false)
+    private CassandraOperations cassandraOperations;
 
     @Async("cassandraExecutor")
     public void savePerformer(CassandraPerformer performer) {
@@ -105,6 +114,35 @@ public class CassandraAsyncWriter {
         } catch (Exception e) {
             log.error("Async Cassandra save failed for ticket operation id={}", operation.getId(), e);
             count("ticket_operation", "save", false);
+        }
+    }
+
+    /**
+     * Upserts a ticket's current state into the Cassandra {@code tickets} table, after a sale or a
+     * cancellation (see TicketService#mirrorTicketToCassandra). Two things differ from the other
+     * async saves:
+     * <ul>
+     *   <li>The write carries {@code changedAt} as its Cassandra write timestamp, so if a sale's
+     *       and a later cancel's writes reach Cassandra out of order (each runs on its own
+     *       virtual thread), the later change still wins: Cassandra keeps the cell with the
+     *       newest timestamp, not the last to arrive.</li>
+     *   <li>Nulls are written, so a cancel's cleared {@code user_id} replaces the buyer's id
+     *       instead of being skipped.</li>
+     * </ul>
+     */
+    @Async("cassandraExecutor")
+    public void saveTicket(CassandraTicket ticket, Instant changedAt) {
+        if (cassandraOperations == null) return;
+        try {
+            // In microseconds, Cassandra's own precision: InsertOptions.timestamp(Instant) truncates
+            // to milliseconds, so two changes within one millisecond would tie.
+            long micros = Math.addExact(Math.multiplyExact(changedAt.getEpochSecond(), 1_000_000L), changedAt.getNano() / 1_000);
+            cassandraOperations.insert(ticket, InsertOptions.builder().timestamp(micros).withInsertNulls().build());
+            log.debug("Async Cassandra save completed for ticket id={} status={}", ticket.getId(), ticket.getStatus());
+            count("ticket", "save", true);
+        } catch (Exception e) {
+            log.error("Async Cassandra save failed for ticket id={}", ticket.getId(), e);
+            count("ticket", "save", false);
         }
     }
 }

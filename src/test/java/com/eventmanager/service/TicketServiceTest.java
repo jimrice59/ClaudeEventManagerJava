@@ -361,6 +361,14 @@ class TicketServiceTest {
         assertThat(recorded.getPaymentRequestId()).isNotBlank();
         assertThat(recorded.getOperationDate()).isNotNull();
         verify(cassandraAsyncWriter).saveTicketOperation(any(CassandraTicketOperation.class));
+        // The sold ticket is mirrored to the Cassandra tickets table, buyer and purchase date included.
+        ArgumentCaptor<CassandraTicket> mirrored = ArgumentCaptor.forClass(CassandraTicket.class);
+        verify(cassandraAsyncWriter).saveTicket(mirrored.capture(), any(java.time.Instant.class));
+        assertThat(mirrored.getValue().getId()).isEqualTo(1L);
+        assertThat(mirrored.getValue().getEventId()).isEqualTo(1L);
+        assertThat(mirrored.getValue().getStatus()).isEqualTo("SOLD");
+        assertThat(mirrored.getValue().getUserId()).isEqualTo(42L);
+        assertThat(mirrored.getValue().getDatePurchased()).isNotNull();
         verify(paymentCacheService).cachePaymentRequest(any(), eq(1L));
         verify(paymentCacheService).cacheIdempotencyToken(any(), eq("idem-9000"));
         // The hold is deleted after RESERVED→PAYING commits.
@@ -404,6 +412,8 @@ class TicketServiceTest {
         verify(ticketOperationRepository).save(captor.capture());
         assertThat(captor.getValue().getOperation()).isEqualTo(TicketOperationType.PAYMENT_DECLINED);
         assertThat(captor.getValue().getIdempotencyToken()).isEqualTo("idem-declined");
+        // A declined payment never sold the ticket: nothing to mirror.
+        verify(cassandraAsyncWriter, never()).saveTicket(any(), any());
     }
 
     @Test
@@ -783,6 +793,12 @@ class TicketServiceTest {
         assertThat(recorded.getPaymentService()).isEqualTo("Square");
         assertThat(recorded.getPaymentConfirmationDetails()).isEqualTo("payment confirmation 1234");
         verify(cassandraAsyncWriter).saveTicketOperation(any(CassandraTicketOperation.class));
+        // The Cassandra row is updated to the cancelled state: AVAILABLE, no owner.
+        ArgumentCaptor<CassandraTicket> mirrored = ArgumentCaptor.forClass(CassandraTicket.class);
+        verify(cassandraAsyncWriter).saveTicket(mirrored.capture(), any(java.time.Instant.class));
+        assertThat(mirrored.getValue().getId()).isEqualTo(1L);
+        assertThat(mirrored.getValue().getStatus()).isEqualTo("AVAILABLE");
+        assertThat(mirrored.getValue().getUserId()).isNull();
     }
 
     @Test
