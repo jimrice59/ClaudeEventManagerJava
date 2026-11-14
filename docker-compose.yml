@@ -118,6 +118,9 @@ services:
       # How long a ticket reservation (a Redis hold) lasts before it expires on its own. Longer
       # than application.yml's 2m default, deliberately, for clicking through the UI by hand.
       TICKET_RESERVATION_HOLD_TTL: ${TICKET_RESERVATION_HOLD_TTL:-10m}
+      # Per-client-IP request limit (1000/s). Set RATE_LIMIT_ENABLED=false to load-test past it, since all
+      # k6 traffic comes from one IP (loadtest/k6/README.md).
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       # Also write the log to a file (the console output, and so `docker logs`, is unchanged).
       # It lands in ./logs/app.log on the host via the volume below. Rolled by Spring Boot's
       # Logback defaults unless overridden. Set APP_LOG_FILE= (empty) to turn the file off.

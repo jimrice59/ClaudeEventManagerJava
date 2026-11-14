@@ -241,15 +241,18 @@ Graphs stay flat on an idle app. A simple burst:
 for i in $(seq 1 300); do curl -s -o /dev/null localhost:8080/api/v1/events; done
 ```
 
-Wait 15–30 seconds for the next scrape. For sustained load, use a load-testing tool such as `hey`
-or `k6`:
+Wait 15–30 seconds for the next scrape. For realistic, sustained load, use the k6 scripts in
+[loadtest/k6](../loadtest/k6/README.md): browsing traffic, and users reserving (optionally buying)
+tickets, with smoke, load, stress, and spike profiles. They run in Docker, no install needed:
 
 ```bash
-hey -z 60s -c 20 http://localhost:8080/api/v1/events
+PROFILE=load ./loadtest/k6/run.sh browse.js
+PROFILE=spike EVENT_ID=7 ./loadtest/k6/run.sh reservations.js
 ```
 
 The app's rate limiter allows 1000 requests per second per client IP (`RATE_LIMIT_MAX_REQUESTS`);
-beyond that you'll see 429 responses in the status breakdown. A purchase needs a logged-in user
+beyond that you'll see 429 responses in the status breakdown. `RATE_LIMIT_ENABLED=false docker compose up -d app`
+turns it off for a load test. A purchase needs a logged-in user
 with a reservation, so it's easier to exercise through the React UI.
 
 ## Metric reference
